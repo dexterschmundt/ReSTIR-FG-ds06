@@ -1,4 +1,3 @@
-@echo off
 
 set pwd=%~dp0
 set project_dir=%pwd%..\

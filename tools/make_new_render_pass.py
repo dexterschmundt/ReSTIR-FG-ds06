@@ -1,6 +1,7 @@
 import sys
 import argparse
 from pathlib import Path
+import time
 
 RENDER_PASSES_DIR = Path(sys.argv[0]).parent.parent / "Source" / "RenderPasses"
 EXCLUDE_EXT = []
@@ -44,11 +45,13 @@ def create_project(name):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Script to create a new render pass.")
-    parser.add_argument("name", help="Render pass name")
-    args = parser.parse_args()
+    #parser = argparse.ArgumentParser(description="Script to create a new render pass.")
+    #parser.add_argument("name", help="Render pass name")
+    #args = parser.parse_args()
 
-    success = create_project(args.name)
+    #success = create_project(args.name)
+    success = create_project(input("How should the render pass be called? "))
+    time.sleep(2.5)
 
     return 0 if success else 1
 
