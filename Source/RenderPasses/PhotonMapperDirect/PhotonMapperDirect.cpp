@@ -31,7 +31,7 @@
 
 namespace
 {
-const char kShaderTracePhotons[] = "";
+const char kShaderTracePhotons[] = "RenderPasses/PhotonMapperDirect/TracePhotons.rt.slang";
 
 const ChannelList kInputChannels = {
     {"vbuffer", "gVBuffer", "Visibility buffer in packed format", false, ResourceFormat::RGBA32Uint}, // is the type of VisibilityBuffers supplied by
@@ -64,6 +64,8 @@ Properties PhotonMapperDirect::getProperties() const
 {
     return {};
 }
+
+void PhotonMapperDirect::renderUI(Gui::Widgets& widget) {}
 
 RenderPassReflection PhotonMapperDirect::reflect(const CompileData& compileData)
 {
@@ -116,6 +118,8 @@ void PhotonMapperDirect::execute(RenderContext* pRenderContext, const RenderData
 
     if (!mpScene)
         return;
+
+
 }
 
 void PhotonMapperDirect::preparePhotonTrace(RenderContext* pRenderContext, const RenderData& renderData)
@@ -123,6 +127,11 @@ void PhotonMapperDirect::preparePhotonTrace(RenderContext* pRenderContext, const
     //TODO: wird alles im konstruktor getan, einiges sollte aber vlt dynamisch wiederhotl werden können basierend auf bools die notwendigkeit dazu anzeigen, einiges kann auch zu set scene ausgelagert werden
     // alles was ich dachte was vlt nur ein mal on construction getan werden muss is hier drin, nur weniges ist in set scene
     // glücklicher weise muss dieser shi nur ein mal in der cornell box laufen
+
+    mpSampleGenerator = SampleGenerator::create(mpDevice, SAMPLE_GENERATOR_UNIFORM);
+
+    auto& pLights = mpScene->getLightCollection(pRenderContext);
+    pLights->prepareSyncCPUData(pRenderContext);
 
     //Photon AS and corresponding data
     mpPhotonAABB = Buffer::createStructured( //gets filled by shaders with AABB that represent bounding boxes with their radius
@@ -159,8 +168,8 @@ void PhotonMapperDirect::preparePhotonTrace(RenderContext* pRenderContext, const
     sbt->setMiss(0, desc.addMiss("miss")); //miss determined by assigned miss index, hence outside of hit groups
     if (mpScene->hasGeometryType(Scene::GeometryType::TriangleMesh))
     {
-        sbt->setHitGroup(0 /*raytype*/, mpScene->getGeometryIDs(Scene::GeometryType::TriangleMesh), desc.addHitGroup("closestHit", "anyHit"));
-        //bundles of closest-, any-hit and interesectionshaders, get chosen by combination of raytype and geometry type
+        sbt->setHitGroup(0 /*raytype / hitgroupidx */, mpScene->getGeometryIDs(Scene::GeometryType::TriangleMesh), desc.addHitGroup("closestHit"));
+        //bundles of closest-, any-hit and interesectionshaders, get chosen by combination of raytype / hitgroupidx and geometry type
     }
 
     //scene defines
@@ -174,7 +183,6 @@ void PhotonMapperDirect::preparePhotonTrace(RenderContext* pRenderContext, const
     mTracePhotonPass.pProgram->addDefine("PHOTON_BUFFER_SIZE", std::to_string(mNumMaxPhotons));
     //mTracePhotonPass.pProgram->addDefine("ROUGHNESS_THRESHOLD", std::to_string(mSpecularRoughnessThreshold)); //no caustic vs global differentiation
     //mTracePhotonPass.pProgram->addDefines(getMaterialDefines()); // TODO: add if needed in shader, fkt to add is lower in restir FG lite
-
 
     //shadervariables
     mTracePhotonPass.initProgramVars(mpDevice, mpScene, mpSampleGenerator);
@@ -208,6 +216,27 @@ void PhotonMapperDirect::tracePhotons(RenderContext* pRenderContext, const Rende
     mpPhotonAS->update(pRenderContext, photonBuildSize);
 }
 
-void PhotonMapperDirect::renderUI(Gui::Widgets& widget)
+
+
+
+
+
+void PhotonMapperDirect::RayTraceProgramHelper::initProgramVars(
+    ref<Device> pDevice,
+    ref<Scene> pScene,
+    ref<SampleGenerator> pSampleGenerator
+)
 {
+    FALCOR_ASSERT(pProgram);
+
+    // Configure program.
+    pProgram->addDefines(pSampleGenerator->getDefines());
+    pProgram->setTypeConformances(pScene->getTypeConformances());
+    // Create program variables for the current program.
+    // This may trigger shader compilation. If it fails, throw an exception to abort rendering.
+    pVars = RtProgramVars::create(pDevice, pProgram, pBindingTable);
+
+    // Bind utility classes into shared data.
+    auto var = pVars->getRootVar();
+    pSampleGenerator->setShaderData(var);
 }

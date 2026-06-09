@@ -46,7 +46,7 @@ public:
     virtual void compile(RenderContext* pRenderContext, const CompileData& compileData) override {}
     virtual void execute(RenderContext* pRenderContext, const RenderData& renderData) override;
     virtual void renderUI(Gui::Widgets& widget) override;
-    virtual void setScene(RenderContext* pRenderContext, const ref<Scene>& pScene) override {}
+    virtual void setScene(RenderContext* pRenderContext, const ref<Scene>& pScene) override;
     virtual bool onMouseEvent(const MouseEvent& mouseEvent) override { return false; }
     virtual bool onKeyEvent(const KeyboardEvent& keyEvent) override { return false; }
 
@@ -57,7 +57,7 @@ private:
     uint mNumMaxPhotons = mShaderDispatchDim * mShaderDispatchDim /* TODO vlt irwann mal im konstruktor setzen*/; // photon buffer gets filled up every time, so quadratic dispatch matches photon buffer size
     uint mFrameCount = 0;
 
-    float2 mPhotonRadius = float2(0.020f, 0.005f); // Global/Caustic Radius. //why the hell is it two dimensional? OHHHH, yes i get it. Would be crazy if not i guess. Ok no WHY IS IT TWO DIMENSIONAL. Bro forgot the AA in AABB
+    float mPhotonRadius = 0.020f; // only one value since no caustic ones used
 
     std::unique_ptr<CustomAccelerationStructure> mpPhotonAS;
     ref<Buffer> mpPhotonAABB;
@@ -67,7 +67,7 @@ private:
     ref<SampleGenerator> mpSampleGenerator;
 
 
-    struct RayTraceProgramHelper //von René
+    struct RayTraceProgramHelper
     {
         ref<RtProgram> pProgram;
         ref<RtBindingTable> pBindingTable;
@@ -99,3 +99,4 @@ private:
 //  final gather
 //  caustic vs global
 //  wiederverwenden von photonen
+//  alpha test
