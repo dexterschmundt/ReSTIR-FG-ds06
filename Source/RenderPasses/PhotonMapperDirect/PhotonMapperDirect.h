@@ -28,6 +28,7 @@
 #pragma once
 #include "Falcor.h"
 #include "RenderGraph/RenderPass.h"
+#include "Rendering/AccelerationStructure/CustomAccelerationStructure.h"
 
 using namespace Falcor;
 
@@ -49,5 +50,52 @@ public:
     virtual bool onMouseEvent(const MouseEvent& mouseEvent) override { return false; }
     virtual bool onKeyEvent(const KeyboardEvent& keyEvent) override { return false; }
 
+    
+
 private:
+    uint mShaderDispatchDim = 32; //dsipatch(32,32,1) i have no clue yet why invocation index gets done qudratic. DispatchDim gets computed in FG_lite, here implemented as member
+    uint mNumMaxPhotons = mShaderDispatchDim * mShaderDispatchDim /* TODO vlt irwann mal im konstruktor setzen*/; // photon buffer gets filled up every time, so quadratic dispatch matches photon buffer size
+    uint mFrameCount = 0;
+
+    float2 mPhotonRadius = float2(0.020f, 0.005f); // Global/Caustic Radius. //why the hell is it two dimensional? OHHHH, yes i get it. Would be crazy if not i guess. Ok no WHY IS IT TWO DIMENSIONAL. Bro forgot the AA in AABB
+
+    std::unique_ptr<CustomAccelerationStructure> mpPhotonAS;
+    ref<Buffer> mpPhotonAABB;
+    ref<Buffer> mpPhotonData;
+
+    ref<Scene> mpScene;                     //my honest, most sincere reaction when a members name deadass does not start with "mp" (who tf even dares to omit it) : (⊙︿⊙) (☉Ô☉) (ʘᗩʘ’) ╰། ◉ ◯ ◉ །╯
+    ref<SampleGenerator> mpSampleGenerator;
+
+
+    struct RayTraceProgramHelper //von René
+    {
+        ref<RtProgram> pProgram;
+        ref<RtBindingTable> pBindingTable;
+        ref<RtProgramVars> pVars;
+
+        static const RayTraceProgramHelper create()
+        {
+            RayTraceProgramHelper r;
+            r.pProgram = nullptr;
+            r.pBindingTable = nullptr;
+            r.pVars = nullptr;
+            return r;
+        }
+
+        void initProgramVars(ref<Device> pDevice, ref<Scene> pScene, ref<SampleGenerator> pSampleGenerator);
+    };
+    RayTraceProgramHelper mTracePhotonPass;
+
+    void PhotonMapperDirect::preparePhotonTrace(RenderContext* pRenderContext, const RenderData& renderData);
+    //does everything that felt like it needs to be done on construction
+
+    void PhotonMapperDirect::tracePhotons(RenderContext* pRenderContext, const RenderData& renderData); //life without these two parameters like "...hmmm, som'thin is missin, ma boy" (i should implement these as lambdas at some point)
+    //looping execution of photon tracing
 };
+//TODO: in radianceEstimatePass dann mit visibilitybuffer positionen auslesen, von dort durch die PhotonAS tracen (mit sehr kurzem strahl) und mit anyhit aufsummieren (und durch fläche teilen)
+
+//worauf das hier verzichtet:
+//  indirektionen für photonen
+//  final gather
+//  caustic vs global
+//  wiederverwenden von photonen
