@@ -91,6 +91,9 @@ private:
 
     void PhotonMapperDirect::tracePhotons(RenderContext* pRenderContext, const RenderData& renderData); //life without these two parameters like "...hmmm, som'thin is missin, ma boy" (i should implement these as lambdas at some point)
     //looping execution of photon tracing
+
+    void PhotonMapperDirect::collectPhotons(RenderContext* pRenderContext, const RenderData& renderData);
+    // looping execution of photon tracing
 };
 //TODO: in radianceEstimatePass dann mit visibilitybuffer positionen auslesen, von dort durch die PhotonAS tracen (mit sehr kurzem strahl) und mit anyhit aufsummieren (und durch fläche teilen)
 

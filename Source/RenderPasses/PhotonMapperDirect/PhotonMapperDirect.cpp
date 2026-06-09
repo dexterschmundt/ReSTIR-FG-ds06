@@ -113,8 +113,7 @@ void PhotonMapperDirect::setScene(RenderContext* pRenderContext, const ref<Scene
 
 void PhotonMapperDirect::execute(RenderContext* pRenderContext, const RenderData& renderData)
 {
-    // renderData holds the requested resources
-    // auto& pTexture = renderData.getTexture("src");
+    
 
     if (!mpScene)
         return;
@@ -214,6 +213,37 @@ void PhotonMapperDirect::tracePhotons(RenderContext* pRenderContext, const Rende
     //update AS with new photons
     std::vector<uint64_t> photonBuildSize = {mNumMaxPhotons}; //ma boy really cant go without his vectors (i will do unspeakable things if this turns into an error)
     mpPhotonAS->update(pRenderContext, photonBuildSize);
+}
+
+void PhotonMapperDirect::collectPhotons(RenderContext* pRenderContext, const RenderData& renderData)
+{
+    // compute shader that traces rays from visibility buffer through photon AS
+
+
+    auto bind = [&](const ChannelDesc& desc)
+    {
+        if (!desc.texname.empty())
+        {
+            var[desc.texname] = renderData.getTexture(desc.name);
+        }
+    };
+    for (auto channel : kInputChannels)
+        bind(channel);
+    for (auto channel : kOutputChannels)
+        bind(channel);
+}
+
+void PhotonMapperDirect::execute(RenderContext* pRenderContext, const RenderData& renderData)
+{
+    if (!mpScene)
+        return;
+    preparePhotonTrace(pRenderContext, renderData);
+    tracePhotons(pRenderContext, renderData);
+    mFrameCount++;
+
+    // renderData holds the requested resources
+    // auto& pTexture = renderData.getTexture("src");
+
 }
 
 
