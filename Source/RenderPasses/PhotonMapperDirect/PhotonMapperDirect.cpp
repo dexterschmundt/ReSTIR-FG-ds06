@@ -110,17 +110,6 @@ void PhotonMapperDirect::setScene(RenderContext* pRenderContext, const ref<Scene
 
 
 
-
-void PhotonMapperDirect::execute(RenderContext* pRenderContext, const RenderData& renderData)
-{
-    
-
-    if (!mpScene)
-        return;
-
-
-}
-
 void PhotonMapperDirect::preparePhotonTrace(RenderContext* pRenderContext, const RenderData& renderData)
 {
     //TODO: wird alles im konstruktor getan, einiges sollte aber vlt dynamisch wiederhotl werden können basierend auf bools die notwendigkeit dazu anzeigen, einiges kann auch zu set scene ausgelagert werden
