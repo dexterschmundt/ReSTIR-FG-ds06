@@ -5,6 +5,7 @@ target_sources(PhotonMapperDirect PRIVATE
     PhotonMapperDirect.h
     LightSampler.slang
     TracePhotons.rt.slang
+    CollectPhotons.cs.slang
 )
 
 target_source_group(PhotonMapperDirect "RenderPasses")

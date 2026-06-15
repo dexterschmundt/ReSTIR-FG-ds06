@@ -95,7 +95,7 @@ private:
     void PhotonMapperDirect::collectPhotons(RenderContext* pRenderContext, const RenderData& renderData);
     // looping execution of photon tracing
 };
-//TODO: in radianceEstimatePass dann mit visibilitybuffer positionen auslesen, von dort durch die PhotonAS tracen (mit sehr kurzem strahl) und mit anyhit aufsummieren (und durch fläche teilen)
+//TODO: in radianceEstimatePass dann mit visibilitybuffer positionen auslesen, von dort durch die PhotonAS tracen (mit sehr kurzem strahl) und mit anyhit in raypayload aufsummieren (und durch fläche teilen im raygen)
 
 //worauf das hier verzichtet:
 //  indirektionen für photonen

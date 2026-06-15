@@ -32,6 +32,7 @@
 namespace
 {
 const char kShaderTracePhotons[] = "RenderPasses/PhotonMapperDirect/TracePhotons.rt.slang";
+const char kShaderCollectPhotons[] = "RenderPasses/PhotonMapperDirect/CollectPhotons.cs.slang";
 
 const ChannelList kInputChannels = {
     {"vbuffer", "gVBuffer", "Visibility buffer in packed format", false, ResourceFormat::RGBA32Uint}, // is the type of VisibilityBuffers supplied by
