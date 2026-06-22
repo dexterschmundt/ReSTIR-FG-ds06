@@ -34,13 +34,18 @@ namespace
 const char kShaderTracePhotons[] = "RenderPasses/PhotonMapperDirect/TracePhotons.rt.slang";
 const char kShaderCollectPhotons[] = "RenderPasses/PhotonMapperDirect/CollectPhotons.cs.slang";
 
+const std::string kInputVBuffer = "vbuffer"; //so i can just quickly access the texture with render context[thisVariable]
+
 const ChannelList kInputChannels = {
-    {"vbuffer", "gVBuffer", "Visibility buffer in packed format", false, ResourceFormat::RGBA32Uint}, // is the type of VisibilityBuffers supplied by
+    {kInputVBuffer, "gVBuffer", "Visibility buffer in packed format", false, ResourceFormat::RGBA32Uint}, // is the type of
+                                                                                                          // VisibilityBuffers supplied by
                                                                                                       // falcor
 };
 
+const std::string kOutputColor = "color"; 
+
 const ChannelList kOutputChannels = {
-    {"color", "gOutputColor", "Output color ", false, ResourceFormat::RGBA32Float},
+    {kOutputColor, "gOutputColor", "Output color ", false, ResourceFormat::RGBA32Float},
 };
 } // namespace
 
@@ -123,7 +128,7 @@ void PhotonMapperDirect::preparePhotonTrace(RenderContext* pRenderContext, const
     pLights->prepareSyncCPUData(pRenderContext);
 
     //Photon AS and corresponding data
-    mpPhotonAABB = Buffer::createStructured( //gets filled by shaders with AABB that represent bounding boxes with their radius
+    mpPhotonAABB = Buffer::createStructured( //gets filled by shaders with AABB that represent photons with their radius
         mpDevice, sizeof(AABB), mNumMaxPhotons, ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess,
         Buffer::CpuAccess::None, nullptr, false);
     mpPhotonAABB->setName("PhotonAABB");
@@ -138,7 +143,16 @@ void PhotonMapperDirect::preparePhotonTrace(RenderContext* pRenderContext, const
         mpDevice, aabbCount, aabbGPUAddress, CustomAccelerationStructure::BuildMode::FastBuild,
         CustomAccelerationStructure::UpdateMode::TLASOnly);
 
-    //shader library
+
+
+
+
+
+
+
+
+
+    //shader library Trace
     RtProgram::Desc desc;
     desc.addShaderModules(mpScene->getShaderModules());
     desc.addShaderLibrary(kShaderTracePhotons);
@@ -149,8 +163,8 @@ void PhotonMapperDirect::preparePhotonTrace(RenderContext* pRenderContext, const
         desc.setPipelineFlags(RtPipelineFlags::SkipProceduralPrimitives);
 
     mTracePhotonPass = RayTraceProgramHelper::create();
-
-    //binding table (hit groups and how shaders are named)
+     
+    //binding table (hit groups and how shaders are named) Trace
     mTracePhotonPass.pBindingTable = RtBindingTable::create(1 /*count of miss shaders that get chosen by miss index*/, 1 /*count of ray types that chose hit group*/, mpScene->getGeometryCount());
     auto& sbt = mTracePhotonPass.pBindingTable; //hit groups are just bundles of shaders
     sbt->setRayGen(desc.addRayGen("rayGen", mpScene->getTypeConformances())); //raygen always exactly one, hence outside of hitgroup
@@ -161,19 +175,19 @@ void PhotonMapperDirect::preparePhotonTrace(RenderContext* pRenderContext, const
         //bundles of closest-, any-hit and interesectionshaders, get chosen by combination of raytype / hitgroupidx and geometry type
     }
 
-    //scene defines
+    //scene defines Trace
     DefineList defines; 
     defines.add("USE_EMISSIVE_LIGHT", mpScene->useEmissiveLights() ? "1" : "0"); //always good to know i guess
     defines.add(mpScene->getSceneDefines()); //i hope this wont cause any extra considerations
 
     mTracePhotonPass.pProgram = RtProgram::create(mpDevice, desc, defines);
 
-    //Photon Mapper specific defines
+    //Photon Mapper specific defines Trace
     mTracePhotonPass.pProgram->addDefine("PHOTON_BUFFER_SIZE", std::to_string(mNumMaxPhotons));
     //mTracePhotonPass.pProgram->addDefine("ROUGHNESS_THRESHOLD", std::to_string(mSpecularRoughnessThreshold)); //no caustic vs global differentiation
     //mTracePhotonPass.pProgram->addDefines(getMaterialDefines()); // TODO: add if needed in shader, fkt to add is lower in restir FG lite
 
-    //shadervariables
+    //shadervariables Trace
     mTracePhotonPass.initProgramVars(mpDevice, mpScene, mpSampleGenerator);
     auto var = mTracePhotonPass.pVars->getRootVar();
     mpScene->setRaytracingShaderData(pRenderContext, var);
@@ -186,11 +200,52 @@ void PhotonMapperDirect::preparePhotonTrace(RenderContext* pRenderContext, const
     var["CB"]["gDispatchDimension"] = mShaderDispatchDim; // fill buffer up every time, we will see how that works (shoulndt be that bad
                                                           // since raytraced visibility should be much more expensive
 
-    //shader output buffers (funily enough as variables)
+    //shader output buffers (funily enough as variables) 
     var["gPhotonAABB"] = mpPhotonAABB;
     var["gPhotonData"] = mpPhotonData;
     //no photon counter since buffer gets filled up every time
-    //TODO: wenn das wirklich nicht klar geht schauen ob der photon counter das tut was ich denke
+    //TODO: wenn das wirklich nicht klar geht schauen ob der photon counter das tut was ich denke, aber René meinte eigtl das geht wenn keine indirektionen
+
+
+
+
+
+
+    // shader library collect
+    Program::Desc desc2;
+    desc2.addShaderModules(mpScene->getShaderModules());
+    desc2.addShaderLibrary(kShaderCollectPhotons).csEntry("main");
+    desc2.addTypeConformances(mpScene->getTypeConformances());
+
+    // scene defines collect
+    DefineList defines2;
+    defines2.add(mpScene->getSceneDefines());
+    defines2.add(mpSampleGenerator->getDefines());
+    //defines.add("USE_ENV_BACKROUND", mpScene->useEnvBackground() ? "1" : "0");
+    //defines.add(mpRTXDI->getDefines());
+    //defines.add(getMaterialDefines()); //TODO: vlt muss ich das hier tatsächlich benutzen
+
+    mCollectPhotonPass = ComputePass::create(mpDevice, desc2, defines2, true);
+
+    //no initProgramVars for Compute shader
+    auto var2 = mCollectPhotonPass->getRootVar();
+    mpScene->setRaytracingShaderData(pRenderContext, var2); //funny calls i have to do
+    mpSampleGenerator->setShaderData(var2);  //probably replaces //initProgramVars
+    // Constant Buffer collect
+    var2["CB"]["gFrameCount"] = mFrameCount;
+    var2["CB"]["gFrameDim"] = renderData.getDefaultTextureDims();
+
+    // Input Resources Collect
+    var2["gVBuffer"] = renderData[kInputVBuffer]->asTexture(); //this seems to be how input textures get accessed
+    mpPhotonAS->bindTlas(var2, "gPhotonAS"); //gets assigned in a bit different way i guess
+    var2["gPhotonAABB"] = mpPhotonAABB;
+    var2["gPhotonData"] = mpPhotonData;
+
+    // Output ressources Collect
+    var2["gOutColor"] = renderData[kOutputColor]->asTexture();
+
+    
+
 }
 
 void PhotonMapperDirect::tracePhotons(RenderContext* pRenderContext, const RenderData& renderData)
@@ -207,20 +262,9 @@ void PhotonMapperDirect::tracePhotons(RenderContext* pRenderContext, const Rende
 
 void PhotonMapperDirect::collectPhotons(RenderContext* pRenderContext, const RenderData& renderData)
 {
-    // compute shader that traces rays from visibility buffer through photon AS
-
-
-    auto bind = [&](const ChannelDesc& desc)
-    {
-        if (!desc.texname.empty())
-        {
-            var[desc.texname] = renderData.getTexture(desc.name);
-        }
-    };
-    for (auto channel : kInputChannels)
-        bind(channel);
-    for (auto channel : kOutputChannels)
-        bind(channel);
+    const uint2 targetDim = renderData.getDefaultTextureDims();
+    FALCOR_ASSERT(targetDim.x > 0 && targetDim.y > 0);
+    mCollectPhotonPass->execute(pRenderContext, uint3(targetDim, 1));
 }
 
 void PhotonMapperDirect::execute(RenderContext* pRenderContext, const RenderData& renderData)
@@ -229,6 +273,7 @@ void PhotonMapperDirect::execute(RenderContext* pRenderContext, const RenderData
         return;
     preparePhotonTrace(pRenderContext, renderData);
     tracePhotons(pRenderContext, renderData);
+    collectPhotons(pRenderContext, renderData);
     mFrameCount++;
 
     // renderData holds the requested resources
