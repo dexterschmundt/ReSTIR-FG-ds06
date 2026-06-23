@@ -53,7 +53,7 @@ public:
     
 
 private:
-    uint mShaderDispatchDim = 32; //dsipatch(32,32,1) i have no clue yet why invocation index gets done qudratic. DispatchDim gets computed in FG_lite, here implemented as member
+    uint mShaderDispatchDim = 256; //dsipatch(32,32,1) i have no clue yet why invocation index gets done qudratic. DispatchDim gets computed in FG_lite, here implemented as member
     uint mNumMaxPhotons = mShaderDispatchDim * mShaderDispatchDim; /* TODO vlt irwann mal im konstruktor setzen*/ // photon buffer gets filled up every time, so quadratic dispatch matches photon buffer size
     uint mFrameCount = 0;
     //uint2 mScreenRes = uint2(0, 0); //just used renderData.defaultTexSize //TODO: kann sein dass das nicht läuft, dann ändern, kann mir aber nicht vorstellen dass das nötig is da dieser member immer nach defaultTexSize gesetzt wird und eher genutzt wird um änderungen zu erkennen
