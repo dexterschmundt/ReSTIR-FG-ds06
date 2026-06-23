@@ -80,7 +80,7 @@ void rayGen()
     if (!generateLightSample(sg, pls))
         return; // if light sample failed somehow i guess (look when generate light sample returns false)
 
-    pls.flux /= dispatchDims.x * dispatchDims.y; // because flux is the one of entire light source, since flux gets multiplied by inverse of the chance of choosing it everything checks out
+    //pls.flux /= dispatchDims.x * dispatchDims.y; // because flux is the one of entire light source, since flux gets multiplied by inverse of the chance of choosing it everything checks out
 
     ray.Direction = pls.dirW; // ray direction given with sample because this function is that chill
     ray.Origin = pls.posW;
@@ -89,7 +89,7 @@ void rayGen()
     RayPayload rayPayload = RayPayload();
 
     PhotonData photon = PhotonData(); // corresponds to PhotonData Buffer
-    photon.flux = pls.flux;           // TODO: ka ob das richtig is
+    photon.flux = pls.flux;
     photon.dir = -ray.Direction;
     photon.normalW = pls.normal;
 
