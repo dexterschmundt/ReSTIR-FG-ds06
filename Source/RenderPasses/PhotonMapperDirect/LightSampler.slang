@@ -26,6 +26,8 @@ struct PhotonLightSample {
     }
 };
 
+//useEmissive, useAnalytic, mixedProbability und StartFlux irwie belegen sodass dieser shi läuft
+
 bool generateLightSample(inout SampleGenerator sg, out PhotonLightSample ls)
 {
     ls = {};

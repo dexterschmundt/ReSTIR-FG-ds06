@@ -116,7 +116,7 @@ void PhotonMapperDirect::setScene(RenderContext* pRenderContext, const ref<Scene
 
 
 
-void PhotonMapperDirect::preparePhotonTrace(RenderContext* pRenderContext, const RenderData& renderData)
+void PhotonMapperDirect::prepareResources(RenderContext* pRenderContext, const RenderData& renderData)
 {
     //TODO: wird alles im konstruktor getan, einiges sollte aber vlt dynamisch wiederhotl werden können basierend auf bools die notwendigkeit dazu anzeigen, einiges kann auch zu set scene ausgelagert werden
     // alles was ich dachte was vlt nur ein mal on construction getan werden muss is hier drin, nur weniges ist in set scene
@@ -141,108 +141,13 @@ void PhotonMapperDirect::preparePhotonTrace(RenderContext* pRenderContext, const
     std::vector<uint64_t> aabbGPUAddress = {mpPhotonAABB->getGpuAddress()};
     mpPhotonAS = std::make_unique<CustomAccelerationStructure>(
         mpDevice, aabbCount, aabbGPUAddress, CustomAccelerationStructure::BuildMode::FastBuild,
-        CustomAccelerationStructure::UpdateMode::TLASOnly);
+        CustomAccelerationStructure::UpdateMode::All);
 
 
 
 
 
-
-
-
-
-
-    //shader library Trace
-    RtProgram::Desc desc;
-    desc.addShaderModules(mpScene->getShaderModules());
-    desc.addShaderLibrary(kShaderTracePhotons);
-    desc.setMaxPayloadSize(sizeof(float) * 4 /*change to actual payload size (ka wie groß ich die mache*/);
-    desc.setMaxAttributeSize(mpScene->getRaytracingMaxAttributeSize());
-    desc.setMaxTraceRecursionDepth(1); //no indirections here, even with indirictions you would just program the raygen shader well
-    if (!mpScene->hasProceduralGeometry())
-        desc.setPipelineFlags(RtPipelineFlags::SkipProceduralPrimitives);
-
-    mTracePhotonPass = RayTraceProgramHelper::create();
-     
-    //binding table (hit groups and how shaders are named) Trace
-    mTracePhotonPass.pBindingTable = RtBindingTable::create(1 /*count of miss shaders that get chosen by miss index*/, 1 /*count of ray types that chose hit group*/, mpScene->getGeometryCount());
-    auto& sbt = mTracePhotonPass.pBindingTable; //hit groups are just bundles of shaders
-    sbt->setRayGen(desc.addRayGen("rayGen", mpScene->getTypeConformances())); //raygen always exactly one, hence outside of hitgroup
-    sbt->setMiss(0, desc.addMiss("miss")); //miss determined by assigned miss index, hence outside of hit groups
-    if (mpScene->hasGeometryType(Scene::GeometryType::TriangleMesh))
-    {
-        sbt->setHitGroup(0 /*raytype / hitgroupidx */, mpScene->getGeometryIDs(Scene::GeometryType::TriangleMesh), desc.addHitGroup("closestHit"));
-        //bundles of closest-, any-hit and interesectionshaders, get chosen by combination of raytype / hitgroupidx and geometry type
-    }
-
-    //scene defines Trace
-    DefineList defines; 
-    defines.add("USE_EMISSIVE_LIGHT", mpScene->useEmissiveLights() ? "1" : "0"); //always good to know i guess
-    defines.add(mpScene->getSceneDefines()); //i hope this wont cause any extra considerations
-
-    mTracePhotonPass.pProgram = RtProgram::create(mpDevice, desc, defines);
-
-    //Photon Mapper specific defines Trace
-    mTracePhotonPass.pProgram->addDefine("PHOTON_BUFFER_SIZE", std::to_string(mNumMaxPhotons));
-    //mTracePhotonPass.pProgram->addDefine("ROUGHNESS_THRESHOLD", std::to_string(mSpecularRoughnessThreshold)); //no caustic vs global differentiation
-    //mTracePhotonPass.pProgram->addDefines(getMaterialDefines()); // TODO: add if needed in shader, fkt to add is lower in restir FG lite
-
-    //shadervariables Trace
-    mTracePhotonPass.initProgramVars(mpDevice, mpScene, mpSampleGenerator);
-    auto var = mTracePhotonPass.pVars->getRootVar();
-    mpScene->setRaytracingShaderData(pRenderContext, var);
-
-    var["CB"]["gFrameCount"] = mFrameCount;
-    var["CB"]["gPhotonRadius"] = mPhotonRadius;
-    //var["CB"]["gMaxBounces"] = mPhotonMaxBounces; //no bounces
-    //var["CB"]["gGlobalRejectionProb"] = mGlobalPhotonRejection; //i wont bother with this honestly
-    //var["CB"]["gUseAnalyticLights"] = analyticOnly; // TODO: add if light sampler fkt needs it
-    var["CB"]["gDispatchDimension"] = mShaderDispatchDim; // fill buffer up every time, we will see how that works (shoulndt be that bad
-                                                          // since raytraced visibility should be much more expensive
-
-    //shader output buffers (funily enough as variables) 
-    var["gPhotonAABB"] = mpPhotonAABB;
-    var["gPhotonData"] = mpPhotonData;
-    //no photon counter since buffer gets filled up every time
-    //TODO: wenn das wirklich nicht klar geht schauen ob der photon counter das tut was ich denke, aber René meinte eigtl das geht wenn keine indirektionen
-
-
-
-
-
-
-    // shader library collect
-    Program::Desc desc2;
-    desc2.addShaderModules(mpScene->getShaderModules());
-    desc2.addShaderLibrary(kShaderCollectPhotons).csEntry("main");
-    desc2.addTypeConformances(mpScene->getTypeConformances());
-
-    // scene defines collect
-    DefineList defines2;
-    defines2.add(mpScene->getSceneDefines());
-    defines2.add(mpSampleGenerator->getDefines());
-    //defines.add("USE_ENV_BACKROUND", mpScene->useEnvBackground() ? "1" : "0");
-    //defines.add(mpRTXDI->getDefines());
-    //defines.add(getMaterialDefines()); //TODO: vlt muss ich das hier tatsächlich benutzen
-
-    mCollectPhotonPass = ComputePass::create(mpDevice, desc2, defines2, true);
-
-    //no initProgramVars for Compute shader
-    auto var2 = mCollectPhotonPass->getRootVar();
-    mpScene->setRaytracingShaderData(pRenderContext, var2); //funny calls i have to do
-    mpSampleGenerator->setShaderData(var2);  //probably replaces //initProgramVars
-    // Constant Buffer collect
-    var2["CB"]["gFrameCount"] = mFrameCount;
-    var2["CB"]["gFrameDim"] = renderData.getDefaultTextureDims();
-
-    // Input Resources Collect
-    var2["gVBuffer"] = renderData[kInputVBuffer]->asTexture(); //this seems to be how input textures get accessed
-    mpPhotonAS->bindTlas(var2, "gPhotonAS"); //gets assigned in a bit different way i guess
-    var2["gPhotonAABB"] = mpPhotonAABB;
-    var2["gPhotonData"] = mpPhotonData;
-
-    // Output ressources Collect
-    var2["gOutColor"] = renderData[kOutputColor]->asTexture();
+    
 
     
 
@@ -250,6 +155,81 @@ void PhotonMapperDirect::preparePhotonTrace(RenderContext* pRenderContext, const
 
 void PhotonMapperDirect::tracePhotons(RenderContext* pRenderContext, const RenderData& renderData)
 {
+
+    if (!mTracePhotonPass.pProgram) //create and compile, only if not done yet /could be doen in constructer but nah
+    {
+        // shader library Trace
+        RtProgram::Desc desc;
+        desc.addShaderModules(mpScene->getShaderModules());
+        desc.addShaderLibrary(kShaderTracePhotons);
+        desc.setMaxPayloadSize(sizeof(float) * 4 /*change to actual payload size (ka wie groß ich die mache*/);
+        desc.setMaxAttributeSize(mpScene->getRaytracingMaxAttributeSize());
+        desc.setMaxTraceRecursionDepth(1); // no indirections here, even with indirictions you would just program the raygen shader well
+        if (!mpScene->hasProceduralGeometry())
+            desc.setPipelineFlags(RtPipelineFlags::SkipProceduralPrimitives);
+
+        mTracePhotonPass = RayTraceProgramHelper::create();
+
+        // binding table (hit groups and how shaders are named) Trace
+        mTracePhotonPass.pBindingTable = RtBindingTable::create(
+            1 /*count of miss shaders that get chosen by miss index*/, 1 /*count of ray types that chose hit group*/,
+            mpScene->getGeometryCount()
+        );
+        auto& sbt = mTracePhotonPass.pBindingTable;                               // hit groups are just bundles of shaders
+        sbt->setRayGen(desc.addRayGen("rayGen", mpScene->getTypeConformances())); // raygen always exactly one, hence outside of hitgroup
+        sbt->setMiss(0, desc.addMiss("miss")); // miss determined by assigned miss index, hence outside of hit groups
+        if (mpScene->hasGeometryType(Scene::GeometryType::TriangleMesh))
+        {
+            sbt->setHitGroup(
+                0 /*raytype / hitgroupidx */, mpScene->getGeometryIDs(Scene::GeometryType::TriangleMesh), desc.addHitGroup("closestHit")
+            );
+            // bundles of closest-, any-hit and interesectionshaders, get chosen by combination of raytype / hitgroupidx and geometry type
+        }
+
+        // scene defines Trace
+        DefineList defines;
+        defines.add("USE_EMISSIVE_LIGHT", mpScene->useEmissiveLights() ? "1" : "0"); // always good to know i guess
+        defines.add(mpScene->getSceneDefines());                                     // i hope this wont cause any extra considerations
+
+        mTracePhotonPass.pProgram = RtProgram::create(mpDevice, desc, defines);
+    }
+
+
+
+
+    
+
+    // Photon Mapper specific defines Trace
+    mTracePhotonPass.pProgram->addDefine("PHOTON_BUFFER_SIZE", std::to_string(mNumMaxPhotons));
+    // mTracePhotonPass.pProgram->addDefine("ROUGHNESS_THRESHOLD", std::to_string(mSpecularRoughnessThreshold)); //no caustic vs global
+    // differentiation mTracePhotonPass.pProgram->addDefines(getMaterialDefines()); // TODO: add if needed in shader, fkt to add is
+    // lower in restir FG lite
+
+    // shadervariables Trace
+    mTracePhotonPass.initProgramVars(mpDevice, mpScene, mpSampleGenerator);
+    auto var = mTracePhotonPass.pVars->getRootVar();
+    mpScene->setRaytracingShaderData(pRenderContext, var);
+
+    var["CB"]["gFrameCount"] = mFrameCount;
+    var["CB"]["gPhotonRadius"] = mPhotonRadius;
+    // var["CB"]["gMaxBounces"] = mPhotonMaxBounces; //no bounces
+    // var["CB"]["gGlobalRejectionProb"] = mGlobalPhotonRejection; //i wont bother with this honestly
+    // var["CB"]["gUseAnalyticLights"] = analyticOnly; // TODO: add if light sampler fkt needs it
+    var["CB"]["gDispatchDimension"] = mShaderDispatchDim; // fill buffer up every time, we will see how that works (shoulndt be that bad
+                                                            // since raytraced visibility should be much more expensive
+    var["CB"]["kUseEmissive"] = mpScene->useEmissiveLights();
+    var["CB"]["kUseAnalytic"] = mpScene->useAnalyticLights();
+    var["CB"]["gMixedLightsAnalyticProbability"] = mMixedLightsAnalyticProbability;
+    // shader output buffers (funily enough as variables)
+    var["gPhotonAABB"] = mpPhotonAABB;
+    var["gPhotonData"] = mpPhotonData;
+    // no photon counter since buffer gets filled up every time
+    // TODO: wenn das wirklich nicht klar geht schauen ob der photon counter das tut was ich denke, aber René meinte eigtl das geht wenn
+    // keine indirektionen
+    
+
+
+
     //dispatch raytraces (which fill AABB buffer)
     mpScene->raytrace(
         pRenderContext, mTracePhotonPass.pProgram.get(), mTracePhotonPass.pVars, uint3(mShaderDispatchDim, mShaderDispatchDim, 1) //Photon buffer size = dispatchdim**2, so it fills up exactly. 
@@ -262,6 +242,41 @@ void PhotonMapperDirect::tracePhotons(RenderContext* pRenderContext, const Rende
 
 void PhotonMapperDirect::collectPhotons(RenderContext* pRenderContext, const RenderData& renderData)
 {
+    if (!mCollectPhotonPass)
+    {
+        // shader library collect
+        Program::Desc desc2;
+        desc2.addShaderModules(mpScene->getShaderModules());
+        desc2.addShaderLibrary(kShaderCollectPhotons).csEntry("main").setShaderModel("6_5");
+        desc2.addTypeConformances(mpScene->getTypeConformances());
+
+        // scene defines collect
+        DefineList defines2;
+        defines2.add(mpScene->getSceneDefines());
+        defines2.add(mpSampleGenerator->getDefines());
+        // defines.add("USE_ENV_BACKROUND", mpScene->useEnvBackground() ? "1" : "0");
+        // defines.add(mpRTXDI->getDefines());
+        // defines.add(getMaterialDefines()); //TODO: vlt muss ich das hier tatsächlich benutzen
+
+        mCollectPhotonPass = ComputePass::create(mpDevice, desc2, defines2, true);
+    }
+    // no initProgramVars for Compute shader
+    auto var2 = mCollectPhotonPass->getRootVar();
+    mpScene->setRaytracingShaderData(pRenderContext, var2); // funny calls i have to do
+    mpSampleGenerator->setShaderData(var2);                 // probably replaces //initProgramVars
+    // Constant Buffer collect
+    var2["CB"]["gFrameCount"] = mFrameCount;
+    var2["CB"]["gFrameDim"] = renderData.getDefaultTextureDims();
+
+    // Input Resources Collect
+    var2["gVBuffer"] = renderData[kInputVBuffer]->asTexture(); // this seems to be how input textures get accessed
+    mpPhotonAS->bindTlas(var2, "gPhotonAS");                   // gets assigned in a bit different way i guess
+    var2["gPhotonAABB"] = mpPhotonAABB;
+    var2["gPhotonData"] = mpPhotonData;
+
+    // Output ressources Collect
+    var2["gOutColor"] = renderData[kOutputColor]->asTexture();
+
     const uint2 targetDim = renderData.getDefaultTextureDims();
     FALCOR_ASSERT(targetDim.x > 0 && targetDim.y > 0);
     mCollectPhotonPass->execute(pRenderContext, uint3(targetDim, 1));
@@ -271,7 +286,7 @@ void PhotonMapperDirect::execute(RenderContext* pRenderContext, const RenderData
 {
     if (!mpScene)
         return;
-    preparePhotonTrace(pRenderContext, renderData);
+    prepareResources(pRenderContext, renderData);
     tracePhotons(pRenderContext, renderData);
     collectPhotons(pRenderContext, renderData);
     mFrameCount++;

@@ -47,16 +47,15 @@ float3 collectPhotons(ShadingData sd, IMaterialInstance mi, float3 N, uint insta
 
         if (rayQuery.CandidateType() != CANDIDATE_PROCEDURAL_PRIMITIVE)
             continue;
-        const uint instanceIdx = rayQuery.CandidateInstanceIndex();
         const uint primIdx = rayQuery.CandidatePrimitiveIndex();
 
         // Check if ray origin is inside photon radius
-        AABB photonAABB = gPhotonAABB[instanceIdx][primIdx];
+        AABB photonAABB = gPhotonAABB[primIdx]; //TODO: das hier und zeile 58 u.u. falsch
         float radius = (photonAABB.maxPoint.x - photonAABB.minPoint.x) / 2.0;
         if (!hitSphere(photonAABB.center(), radius, sd.posW))
             continue;
 
-        PhotonData photonData = gPhotonData[instanceIdx][primIdx];
+        PhotonData photonData = gPhotonData[primIdx];
         float NdotL = dot(photonData.dir, N);
         // Check for diffent surfaces (e.g. corners)
         if ((dot(photonData.normalW, sd.faceN) < 0.6) || (NdotL <= 0))
@@ -72,7 +71,7 @@ float3 collectPhotons(ShadingData sd, IMaterialInstance mi, float3 N, uint insta
 [numthreads(16, 16, 1)] //defines work groups and therefore who can use shared memory, luckily nothing that happens in her. No screenspace effects here
 void main(uint2 pixel: SV_DispatchThreadID)
 {
-    uint2 pixel = DispatchRaysIndex().xy;
+    //uint2 pixel = DispatchRaysIndex().xy;
     uint2 dispatchDims = gFrameDim.xy; //
 
     HitInfo hitInfo = HitInfo(gVBuffer[pixel]);

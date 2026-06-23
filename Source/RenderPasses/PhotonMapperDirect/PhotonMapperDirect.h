@@ -54,11 +54,13 @@ public:
 
 private:
     uint mShaderDispatchDim = 32; //dsipatch(32,32,1) i have no clue yet why invocation index gets done qudratic. DispatchDim gets computed in FG_lite, here implemented as member
-    uint mNumMaxPhotons = mShaderDispatchDim * mShaderDispatchDim /* TODO vlt irwann mal im konstruktor setzen*/; // photon buffer gets filled up every time, so quadratic dispatch matches photon buffer size
+    uint mNumMaxPhotons = mShaderDispatchDim * mShaderDispatchDim; /* TODO vlt irwann mal im konstruktor setzen*/ // photon buffer gets filled up every time, so quadratic dispatch matches photon buffer size
     uint mFrameCount = 0;
     //uint2 mScreenRes = uint2(0, 0); //just used renderData.defaultTexSize //TODO: kann sein dass das nicht läuft, dann ändern, kann mir aber nicht vorstellen dass das nötig is da dieser member immer nach defaultTexSize gesetzt wird und eher genutzt wird um änderungen zu erkennen
 
     float mPhotonRadius = 0.020f; // only one value since no caustic ones used
+
+    float mMixedLightsAnalyticProbability = 0.5f; // i have no clue man
 
     std::unique_ptr<CustomAccelerationStructure> mpPhotonAS;
     ref<Buffer> mpPhotonAABB;
@@ -66,6 +68,8 @@ private:
 
     ref<Scene> mpScene;                     //my honest, most sincere reaction when a members name deadass does not start with "mp" (who tf even dares to omit it) : (⊙︿⊙) (☉Ô☉) (ʘᗩʘ’) ╰། ◉ ◯ ◉ །╯
     ref<SampleGenerator> mpSampleGenerator;
+
+    
 
 
     struct RayTraceProgramHelper //didnt look that bad so i copied it
@@ -89,7 +93,7 @@ private:
     RayTraceProgramHelper mTracePhotonPass;
     ref<ComputePass> mCollectPhotonPass;
 
-    void PhotonMapperDirect::preparePhotonTrace(RenderContext* pRenderContext, const RenderData& renderData);
+    void PhotonMapperDirect::prepareResources(RenderContext* pRenderContext, const RenderData& renderData);
     //does everything that felt like it needs to only be done on construction, will put it in the loop too tough (so it gets reeeaaallly inefficient (probably))
 
     void PhotonMapperDirect::tracePhotons(RenderContext* pRenderContext, const RenderData& renderData); //life without these two parameters like "...hmmm, som'thin is missin, ma boy" (i should implement these as lambdas at some point)

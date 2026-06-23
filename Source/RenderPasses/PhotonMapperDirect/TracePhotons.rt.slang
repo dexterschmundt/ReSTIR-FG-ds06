@@ -17,9 +17,9 @@ cbuffer CB
     float gPhotonRadius; // radius for radiance estimate which will be the width for stored AABB
 
     uint gDispatchDimension;    // Dispatch dims (x,y identical)
-    float gGlobalRejectionProb; // Rejection Probability for global photons
-    //bool gUseAnalyticLights;    // true if analytic lights should be used, TODO: add again if samplerfkr needs it
-    uint _pad;
+    bool kUseEmissive;
+    bool kUseAnalytic;
+    float gMixedLightsAnalyticProbability;
 }
 
 RWStructuredBuffer<AABB> gPhotonAABB;
@@ -80,17 +80,17 @@ void rayGen()
     if (!generateLightSample(sg, pls))
         return; // if light sample failed somehow i guess (look when generate light sample returns false)
 
+    pls.flux /= dispatchDims.x * dispatchDims.y; // because flux is the one of entire light source, since flux gets multiplied by inverse of the chance of choosing it everything checks out
+
     ray.Direction = pls.dirW; // ray direction given with sample because this function is that chill
     ray.Origin = pls.posW;
     ray.TMin = 0.0;
     ray.TMax = FLT_MAX;
     RayPayload rayPayload = RayPayload();
 
-    pls.flux /= dispatchDims.x * dispatchDims.y; // because flux is the one of entire light source
-
-    PhotonData photon = PhotonData(); //corresponds to PhotonData Buffer
-    photon.flux = photonStartFlux;
-    photon.dir = -pls.dirW;
+    PhotonData photon = PhotonData(); // corresponds to PhotonData Buffer
+    photon.flux = pls.flux;           // TODO: ka ob das richtig is
+    photon.dir = -ray.Direction;
     photon.normalW = pls.normal;
 
 
