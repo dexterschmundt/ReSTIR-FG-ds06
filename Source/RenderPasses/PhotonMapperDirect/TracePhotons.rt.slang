@@ -96,6 +96,7 @@ void rayGen()
 
     TraceRay(gScene.rtAccel, 0 /*Flags*/, 0xff /* instanceInclusionMask */, 0 /* raytype / hitgroupidx */, rayTypeCount, 0 /* missIdx */, ray, rayPayload);
 
+
     HitInfo hit = HitInfo(rayPayload.packedHitInfo);
     
     if (!hit.isValid())
@@ -105,6 +106,14 @@ void rayGen()
     let lod = ExplicitLodTextureSampler(0);
     ShadingData sd = loadShadingData(hit, ray.Direction, lod);
 
+    uint hints = (uint)MaterialInstanceHints::AdjustShadingNormal;
+    
+    //Global Photon rejection (AS gets smaller)
+    //bool storePhoton = true;
+    //if (true/*photonType == PhotonType::Global*/) { //TODO: auf global und caustic umstellen
+    //    storePhoton = sampleNext1D(sg) <= /*gGlobalRejectionProb*/;
+    //    photon.flux *= invRejection;
+    
     photon.normalW = sd.getOrientedFaceNormal();
     uint photonInsertIndex = (uint(DispatchRaysIndex().x) * gDispatchDimension) + (uint(DispatchRaysIndex().y)); //unique for every invocation
     if ((photonInsertIndex <= kPhotonBufferSize) && (photonInsertIndex >= 1)) //either the one who wrote <= earlier forgot how indices work, or it actually starts with index 1, and i am not going to take chances
