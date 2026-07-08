@@ -71,7 +71,7 @@ Properties PhotonMapperDirect::getProperties() const
     return {};
 }
 
-
+void PhotonMapperDirect::renderUI(Gui::Widgets& widget) {}
 
 RenderPassReflection PhotonMapperDirect::reflect(const CompileData& compileData)
 {
