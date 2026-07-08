@@ -25,14 +25,12 @@
  # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  **************************************************************************/
-#include "PhotonMapperDirect.h"
-#include "RenderGraph/RenderPassHelpers.h"
-#include "Rendering/AccelerationStructure/CustomAccelerationStructure.h"
+#include "PhotonMapperLight.h"
 
 namespace
 {
-const char kShaderTracePhotons[] = "RenderPasses/PhotonMapperDirect/TracePhotons.rt.slang";
-const char kShaderCollectPhotons[] = "RenderPasses/PhotonMapperDirect/CollectPhotons.cs.slang";
+const char kShaderTracePhotons[] = "RenderPasses/PhotonMapperLight/TracePhotons.rt.slang";
+const char kShaderCollectPhotons[] = "RenderPasses/PhotonMapperLight/CollectPhotons.cs.slang";
 
 const std::string kInputVBuffer = "vbuffer"; //so i can just quickly access the texture with render context[thisVariable]
 
@@ -55,25 +53,24 @@ const ChannelList kOutputChannels = {
 
 
 
-
 extern "C" FALCOR_API_EXPORT void registerPlugin(Falcor::PluginRegistry& registry)
 {
-    registry.registerClass<RenderPass, PhotonMapperDirect>();
+    registry.registerClass<RenderPass, PhotonMapperLight>();
 }
 
-PhotonMapperDirect::PhotonMapperDirect(ref<Device> pDevice, const Properties& props)
+PhotonMapperLight::PhotonMapperLight(ref<Device> pDevice, const Properties& props)
     : RenderPass(pDevice)
 {
 }
 
-Properties PhotonMapperDirect::getProperties() const
+Properties PhotonMapperLight::getProperties() const
 {
     return {};
 }
 
+void PhotonMapperLight::renderUI(Gui::Widgets& widget) {}
 
-
-RenderPassReflection PhotonMapperDirect::reflect(const CompileData& compileData)
+RenderPassReflection PhotonMapperLight::reflect(const CompileData& compileData)
 {
     RenderPassReflection reflector;
     addRenderPassInputs(reflector, kInputChannels); // applies channel lists from above
@@ -81,23 +78,23 @@ RenderPassReflection PhotonMapperDirect::reflect(const CompileData& compileData)
     return reflector;
 }
 
-void PhotonMapperDirect::setScene(RenderContext* pRenderContext, const ref<Scene>& pScene)
+void PhotonMapperLight::setScene(RenderContext* pRenderContext, const ref<Scene>& pScene)
 {
     // Reset Scene
     mpScene = pScene;
 
     // Reset all passes and sampling helpers
     mpPhotonAS.reset();
-    //mpEmissiveLightSampler.reset();
-    //mpRTXDI.reset();
-    //mResetScreenTex = true;
-    //mChangePhotonLightBufferSize = true;
+    // mpEmissiveLightSampler.reset();
+    // mpRTXDI.reset();
+    // mResetScreenTex = true;
+    // mChangePhotonLightBufferSize = true;
 
-    //mTracePhotonPass = RayTraceProgramHelper::create();
-    //mGenerateInitialSamplesPass = RayTraceProgramHelper::create();
-    //mpResampleReservoirFGPass.reset();
-    //mpResampleReservoirCausticPass.reset();
-    //mpEvaluateReservoirsPass.reset();
+    // mTracePhotonPass = RayTraceProgramHelper::create();
+    // mGenerateInitialSamplesPass = RayTraceProgramHelper::create();
+    // mpResampleReservoirFGPass.reset();
+    // mpResampleReservoirCausticPass.reset();
+    // mpEvaluateReservoirsPass.reset();
 
     if (mpScene)
     {
@@ -108,15 +105,7 @@ void PhotonMapperDirect::setScene(RenderContext* pRenderContext, const ref<Scene
     }
 }
 
-
-
-
-
-
-
-
-
-void PhotonMapperDirect::prepareResources(RenderContext* pRenderContext, const RenderData& renderData)
+void PhotonMapperLight::prepareResources(RenderContext* pRenderContext, const RenderData& renderData)
 {
     //TODO: wird alles im konstruktor getan, einiges sollte aber vlt dynamisch wiederhotl werden können basierend auf bools die notwendigkeit dazu anzeigen, einiges kann auch zu set scene ausgelagert werden
     // alles was ich dachte was vlt nur ein mal on construction getan werden muss is hier drin, nur weniges ist in set scene
@@ -153,7 +142,7 @@ void PhotonMapperDirect::prepareResources(RenderContext* pRenderContext, const R
 
 }
 
-void PhotonMapperDirect::tracePhotons(RenderContext* pRenderContext, const RenderData& renderData)
+void PhotonMapperLight::tracePhotons(RenderContext* pRenderContext, const RenderData& renderData)
 {
 
     if (!mTracePhotonPass.pProgram) //create and compile, only if not done yet /could be doen in constructer but nah
@@ -240,7 +229,7 @@ void PhotonMapperDirect::tracePhotons(RenderContext* pRenderContext, const Rende
     mpPhotonAS->update(pRenderContext, photonBuildSize);
 }
 
-void PhotonMapperDirect::collectPhotons(RenderContext* pRenderContext, const RenderData& renderData)
+void PhotonMapperLight::collectPhotons(RenderContext* pRenderContext, const RenderData& renderData)
 {
     if (!mCollectPhotonPass)
     {
@@ -282,7 +271,7 @@ void PhotonMapperDirect::collectPhotons(RenderContext* pRenderContext, const Ren
     mCollectPhotonPass->execute(pRenderContext, uint3(targetDim, 1));
 }
 
-void PhotonMapperDirect::execute(RenderContext* pRenderContext, const RenderData& renderData)
+void PhotonMapperLight::execute(RenderContext* pRenderContext, const RenderData& renderData)
 {
     if (!mpScene)
         return;
@@ -301,7 +290,7 @@ void PhotonMapperDirect::execute(RenderContext* pRenderContext, const RenderData
 
 
 
-void PhotonMapperDirect::RayTraceProgramHelper::initProgramVars(
+void PhotonMapperLight::RayTraceProgramHelper::initProgramVars(
     ref<Device> pDevice,
     ref<Scene> pScene,
     ref<SampleGenerator> pSampleGenerator
@@ -320,3 +309,7 @@ void PhotonMapperDirect::RayTraceProgramHelper::initProgramVars(
     auto var = pVars->getRootVar();
     pSampleGenerator->setShaderData(var);
 }
+
+
+
+
