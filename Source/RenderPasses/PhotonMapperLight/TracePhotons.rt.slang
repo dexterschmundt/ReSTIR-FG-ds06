@@ -12,21 +12,23 @@ import StructsAndHelpers;
 
 cbuffer CB
 {
-    //uint gMaxBounces;     // Max number of bounces allowed, only one in here
+    uint gMaxBounces;     // Max number of bounces allowed, only one in here
     uint gFrameCount;     // Frame count since scene was loaded.
     float gPhotonRadius; // radius for radiance estimate which will be the width for stored AABB
-
     uint gDispatchDimension;    // Dispatch dims (x,y identical)
     bool kUseEmissive;
     bool kUseAnalytic;
     float gMixedLightsAnalyticProbability;
+    float gGlobalRejectionProb; // Rejection Probability for global photons
 }
 
 RWStructuredBuffer<AABB> gPhotonAABB;
 RWStructuredBuffer<PhotonData> gPhotonData;
-//RWStructuredBuffer<uint> gPhotonCounter; we dont do that here
+RWStructuredBuffer<uint> gPhotonCounter;
 
+static const float kRoughnessThreshold = ROUGHNESS_THRESHOLD;
 static const uint kPhotonBufferSize = PHOTON_BUFFER_SIZE;
+static const bool kRussianRoulette = true;
 
 struct RayPayload //payload is the single output of hit/miss shaders, so it is necessary
 {
@@ -88,38 +90,86 @@ void rayGen()
     ray.TMax = FLT_MAX;
     RayPayload rayPayload = RayPayload();
 
-    PhotonData photon = PhotonData(); // corresponds to PhotonData Buffer
-    photon.flux = pls.flux;
+    bool storeAsCaustic = false;
+    bool reflectedDiffuse = false;
+    float3 photonStartFlux = pls.flux;
+    float3 thp = float3(1.0); // Throughput
+
+    // Prepare photon
+    PhotonData photon = PhotonData();
+    photon.flux = photonStartFlux;
     photon.dir = -ray.Direction;
     photon.normalW = pls.normal;
 
+    const float invRejection = 1.f / gGlobalRejectionProb;
 
-    TraceRay(gScene.rtAccel, 0 /*Flags*/, 0xff /* instanceInclusionMask */, 0 /* raytype / hitgroupidx */, rayTypeCount, 0 /* missIdx */, ray, rayPayload);
+    // Main Raytrace Loop
+    for (uint i = 0; i < gMaxBounces; i++) {
+        TraceRay(gScene.rtAccel, 0 /*Flags*/, 0xff /* instanceInclusionMask */, 0 /* hitIdx */, rayTypeCount, 0 /* missIdx */, ray, rayPayload);
 
+        HitInfo hit = HitInfo(rayPayload.packedHitInfo);
+        // Stop if photon leaves the scene
+        if (!hit.isValid())
+            return;
 
-    HitInfo hit = HitInfo(rayPayload.packedHitInfo);
-    
-    if (!hit.isValid())
-        return; //necessary i guess if miss shader doesnt terminate ray, makes sense tough
+        // Get shading infos and material properties
+        let lod = ExplicitLodTextureSampler(0);
+        uint hints = (uint)MaterialInstanceHints::AdjustShadingNormal;
+        ShadingData sd = loadShadingData(hit, ray.Direction, lod);
+        let mi = gScene.materials.getMaterialInstance(sd, lod, hints);
+        let bsdfProperties = mi.getProperties(sd);
 
-    // Get material infos from Packed hitinfo
-    let lod = ExplicitLodTextureSampler(0);
-    ShadingData sd = loadShadingData(hit, ray.Direction, lod);
+        // Store Photon if a diffuse surface was hit
+        photon.normalW = sd.getOrientedFaceNormal();
+        reflectedDiffuse = bsdfProperties.roughness > kRoughnessThreshold;
+        if (reflectedDiffuse) {
+            PhotonType photonType = storeAsCaustic ? PhotonType::Caustic : PhotonType::Global;
+            // Global photons can be rejected. The flux of the stored ones should be increased by the inverse of the rejection probability
+            bool storePhoton = true;
+            if (photonType == PhotonType::Global) {
+                storePhoton = sampleNext1D(sg) <= gGlobalRejectionProb;
+                photon.flux *= invRejection;
+            }
+            // Insert photon into buffer using a counter with interlocked add
+            if (storePhoton) {
+                uint photonTypeIdx = (uint)photonType;
+                uint photonInsertIndex = 0;
+                InterlockedAdd(gPhotonCounter[0]/*[photonTypeIdx]*/, 1u, photonInsertIndex);
+                if (photonInsertIndex <= kPhotonBufferSize/*[photonTypeIdx]*/)
+                {
+                    AABB photonAABB = AABB(sd.posW - gPhotonRadius/*[photonTypeIdx]*/, sd.posW + gPhotonRadius[photonTypeIdx]);
+                    gPhotonAABB/*[photonTypeIdx]*/[photonInsertIndex] = photonAABB;
+                    gPhotonData/*[photonTypeIdx]*/[photonInsertIndex] = photon;
+                }
+            }
+        }
 
-    uint hints = (uint)MaterialInstanceHints::AdjustShadingNormal;
-    
-    //Global Photon rejection (AS gets smaller)
-    //bool storePhoton = true;
-    //if (true/*photonType == PhotonType::Global*/) { //TODO: auf global und caustic umstellen
-    //    storePhoton = sampleNext1D(sg) <= /*gGlobalRejectionProb*/;
-    //    photon.flux *= invRejection;
-    
-    photon.normalW = sd.getOrientedFaceNormal();
-    uint photonInsertIndex = (uint(DispatchRaysIndex().x) * gDispatchDimension) + (uint(DispatchRaysIndex().y)); //unique for every invocation
-    if ((photonInsertIndex <= kPhotonBufferSize) && (photonInsertIndex >= 1)) //either the one who wrote <= earlier forgot how indices work, or it actually starts with index 1, and i am not going to take chances
-    {
-        AABB photonAABB = AABB(sd.posW - gPhotonRadius, sd.posW + gPhotonRadius);
-        gPhotonAABB[photonInsertIndex] = photonAABB;
-        gPhotonData[photonInsertIndex] = photon;
+        // Sample Photon bounce for next iteration
+        BSDFSample bsdfSample;
+        bool validSample = mi.sample(sd, sg, bsdfSample, true /*ImportanceSampling*/);
+        if (!validSample)
+            return;
+        bool transmission = bsdfSample.isLobe(LobeType::Transmission);
+        ray.Origin = sd.computeNewRayOrigin(!transmission); // false is for transmissions
+        ray.Direction = bsdfSample.wo;
+        thp *= bsdfSample.weight;
+
+        // Russian Roulette
+        const float rrVal = (thp.x + thp.y + thp.z) / 3.0;
+        const float prob = max(0.f, 1.f - rrVal);
+        if (sampleNext1D(sg) < prob)
+        {
+            return; // Photon is absorbed
+        }
+        else
+        {
+            thp /= (1.f - prob);
+        }
+
+        // Update Photon
+        storeAsCaustic = !reflectedDiffuse;
+        photon.dir = -ray.Direction;
+        photon.flux = photonStartFlux * thp;
+        photon.pathLenght++;
     }
 }

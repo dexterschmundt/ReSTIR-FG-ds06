@@ -190,7 +190,7 @@ void PhotonMapperLight::tracePhotons(RenderContext* pRenderContext, const Render
 
     // Photon Mapper specific defines Trace
     mTracePhotonPass.pProgram->addDefine("PHOTON_BUFFER_SIZE", std::to_string(mNumMaxPhotons));
-    // mTracePhotonPass.pProgram->addDefine("ROUGHNESS_THRESHOLD", std::to_string(mSpecularRoughnessThreshold)); //no caustic vs global
+    mTracePhotonPass.pProgram->addDefine("ROUGHNESS_THRESHOLD", std::to_string(mSpecularRoughnessThreshold)); //no caustic vs global
     // differentiation mTracePhotonPass.pProgram->addDefines(getMaterialDefines()); // TODO: add if needed in shader, fkt to add is
     // lower in restir FG lite
 
@@ -201,20 +201,18 @@ void PhotonMapperLight::tracePhotons(RenderContext* pRenderContext, const Render
 
     var["CB"]["gFrameCount"] = mFrameCount;
     var["CB"]["gPhotonRadius"] = mPhotonRadius;
-    // var["CB"]["gMaxBounces"] = mPhotonMaxBounces; //no bounces
-    // var["CB"]["gGlobalRejectionProb"] = mGlobalPhotonRejection; //i wont bother with this honestly
-    // var["CB"]["gUseAnalyticLights"] = analyticOnly; // TODO: add if light sampler fkt needs it
+    var["CB"]["gMaxBounces"] = mPhotonMaxBounces; //no bounces
+    var["CB"]["gGlobalRejectionProb"] = mGlobalPhotonRejection; //i wont bother with this honestly
     var["CB"]["gDispatchDimension"] = mShaderDispatchDim; // fill buffer up every time, we will see how that works (shoulndt be that bad
                                                             // since raytraced visibility should be much more expensive
     var["CB"]["kUseEmissive"] = mpScene->useEmissiveLights();
     var["CB"]["kUseAnalytic"] = mpScene->useAnalyticLights();
     var["CB"]["gMixedLightsAnalyticProbability"] = mMixedLightsAnalyticProbability;
+
     // shader output buffers (funily enough as variables)
     var["gPhotonAABB"] = mpPhotonAABB;
     var["gPhotonData"] = mpPhotonData;
-    // no photon counter since buffer gets filled up every time
-    // TODO: wenn das wirklich nicht klar geht schauen ob der photon counter das tut was ich denke, aber René meinte eigtl das geht wenn
-    // keine indirektionen
+    var["gPhotonCounter"] = mpPhotonCounter;
     
 
 
