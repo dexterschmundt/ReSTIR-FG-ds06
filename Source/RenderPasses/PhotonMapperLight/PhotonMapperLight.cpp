@@ -185,7 +185,7 @@ void PhotonMapperLight::tracePhotons(RenderContext* pRenderContext, const Render
 
 
 
-
+    //prepare ressources usw überprüfen ob wegen photon counter noch was initialisiert werden muss TTTTTTTTTOOOOODDDDOOOO
     
 
     // Photon Mapper specific defines Trace
@@ -223,18 +223,30 @@ void PhotonMapperLight::tracePhotons(RenderContext* pRenderContext, const Render
     ); //TODO: if it doesnt pose scheduling problems, just use (mNumMaxPhotons,1,1), or see the almighty reason in the shader (maybe it gets appearant after seeing the source)
 
     // Clear values after the counter
-    std::vector<ref<Buffer>> aabbs = {mpPhotonAABB[0], mpPhotonAABB[1]};
+    std::vector<ref<Buffer>> aabbs = {mpPhotonAABB /*[0], mpPhotonAABB[1]*/};
     mpPhotonAS->clearAABBBuffers(pRenderContext, aabbs, true, mpPhotonCounter);
 
     // Copy counter to CPU
     handlePhotonCounter(pRenderContext);
 
     // Build acceleration structure
-    uint2 currentPhotons = mFrameCount > 0 ? uint2(float2(mCurrentPhotonCount) * mASBuildBufferPhotonOverestimate) : mNumMaxPhotons;
+    uint/*2*/ currentPhotons = mFrameCount > 0 ? uint/*2*/(float/*2*/(mCurrentPhotonCount) * mASBuildBufferPhotonOverestimate) : mNumMaxPhotons;
     std::vector<uint64_t> photonBuildSize = {
-        std::min(mNumMaxPhotons[0], currentPhotons[0]), std::min(mNumMaxPhotons[1], currentPhotons[1])
+        std::min(mNumMaxPhotons /*[0]*/, currentPhotons /*[0]*/) /*, std::min(mNumMaxPhotons[1], currentPhotons[1])*/
     };
     mpPhotonAS->update(pRenderContext, photonBuildSize);
+}
+
+void PhotonMapperLight::handlePhotonCounter(RenderContext* pRenderContext)
+{
+    // Copy the photonCounter to a CPU Buffer (asynchronous, read GPU value can be a couple of frames old)
+    pRenderContext->copyBufferRegion(mpPhotonCounterCPU.get(), 0, mpPhotonCounter.get(), 0, sizeof(uint2));
+
+    void* data = mpPhotonCounterCPU->map(Buffer::MapType::Read);
+    std::memcpy(&mCurrentPhotonCount, data, sizeof(uint2));
+    mpPhotonCounterCPU->unmap();
+
+    // Code for dynamic dispatch count missing. I wont do that and hope it works //TODO: wenn nicht dann hier ändern, code aus FG_Lite holen
 }
 
 void PhotonMapperLight::collectPhotons(RenderContext* pRenderContext, const RenderData& renderData)

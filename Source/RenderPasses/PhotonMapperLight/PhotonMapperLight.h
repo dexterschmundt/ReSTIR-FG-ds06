@@ -52,30 +52,42 @@ public:
     virtual bool onKeyEvent(const KeyboardEvent& keyEvent) override { return false; }
 
 private:
-    uint mShaderDispatchDim = 256; // dsipatch(32,32,1) i have no clue yet why invocation index gets done qudratic. DispatchDim gets
-                                   // computed in FG_lite, here implemented as member
-    uint mNumMaxPhotons = mShaderDispatchDim * mShaderDispatchDim; /* TODO vlt irwann mal im konstruktor setzen*/ // photon buffer gets
-                                                                                                                  // filled up every time,
-                                                                                                                  // so quadratic dispatch
-                                                                                                                  // matches photon buffer
-                                                                                                                  // size
+                                                                                     // matches photon buffer                                                                                              // size
     uint mFrameCount = 0;
     // uint2 mScreenRes = uint2(0, 0); //just used renderData.defaultTexSize //TODO: kann sein dass das nicht läuft, dann ändern, kann mir
     // aber nicht vorstellen dass das nötig is da dieser member immer nach defaultTexSize gesetzt wird und eher genutzt wird um änderungen
     // zu erkennen
+    ref<Scene> mpScene; // my honest, most sincere reaction when a members name deadass does not start with "mp" (who tf even dares to omit
+                       // it) : (⊙︿⊙) (☉Ô☉) (ʘᗩʘ’) ╰། ◉ ◯ ◉ །╯
+    ref<SampleGenerator> mpSampleGenerator;
 
-    float mPhotonRadius = 0.020f; // only one value since no caustic ones used
 
-    float mMixedLightsAnalyticProbability = 0.5f; // i have no clue man
 
+
+    //Photon Data and AS
     std::unique_ptr<CustomAccelerationStructure> mpPhotonAS;
     ref<Buffer> mpPhotonAABB;
     ref<Buffer> mpPhotonData;
 
-    ref<Scene> mpScene; // my honest, most sincere reaction when a members name deadass does not start with "mp" (who tf even dares to omit
-                        // it) : (⊙︿⊙) (☉Ô☉) (ʘᗩʘ’) ╰། ◉ ◯ ◉ །╯
-    ref<SampleGenerator> mpSampleGenerator;
+    //Photon trace params
+    uint mShaderDispatchDim = 256; // computed in FG_lite, here implemented as member
+    uint /*2*/ mNumMaxPhotons = mShaderDispatchDim * mShaderDispatchDim; /* TODO vlt irwann mal im konstruktor setzen*/                     
+    int mPhotonMaxBounces = 5; 
+    float mGlobalPhotonRejection = 0.3f;
+    float mPhotonRadius = 0.020f; // only one value since no caustic ones used
+    float mMixedLightsAnalyticProbability = 0.5f; // i have no clue man
+    float mSpecularRoughnessThreshold = 0.25f;
 
+    //Photon counter stuff
+    ref<Buffer> mpPhotonCounter;
+    ref<Buffer> mpPhotonCounterCPU;
+    uint/*2*/ mCurrentPhotonCount = mNumMaxPhotons;
+    float mASBuildBufferPhotonOverestimate = 1.15f;
+
+
+
+
+    // stuff that will contain the passes
     struct RayTraceProgramHelper // didnt look that bad so i copied it
     {
         ref<RtProgram> pProgram;
@@ -93,9 +105,16 @@ private:
 
         void initProgramVars(ref<Device> pDevice, ref<Scene> pScene, ref<SampleGenerator> pSampleGenerator);
     };
-
+    
     RayTraceProgramHelper mTracePhotonPass;
     ref<ComputePass> mCollectPhotonPass;
+
+
+
+
+    //fkts to handle tasks/execute tasks
+
+    void PhotonMapperLight::handlePhotonCounter(RenderContext* pRenderContext);
 
     void PhotonMapperLight::prepareResources(RenderContext* pRenderContext, const RenderData& renderData);
     // does everything that felt like it needs to only be done on construction, will put it in the loop too tough (so it gets reeeaaallly
@@ -104,8 +123,7 @@ private:
     void PhotonMapperLight::tracePhotons(RenderContext* pRenderContext, const RenderData& renderData); // life without these two parameters
                                                                                                         // like "...hmmm, som'thin is
                                                                                                         // missin, ma boy" (i should
-                                                                                                        // implement these as lambdas at
-                                                                                                        // some point)
+                                                                                                        // implement these as lambdas a                                                                // some point)
     // looping execution of photon tracing
 
     void PhotonMapperLight::collectPhotons(RenderContext* pRenderContext, const RenderData& renderData);
