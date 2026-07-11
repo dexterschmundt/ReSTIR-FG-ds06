@@ -222,8 +222,18 @@ void PhotonMapperLight::tracePhotons(RenderContext* pRenderContext, const Render
         pRenderContext, mTracePhotonPass.pProgram.get(), mTracePhotonPass.pVars, uint3(mShaderDispatchDim, mShaderDispatchDim, 1) //Photon buffer size = dispatchdim**2, so it fills up exactly. 
     ); //TODO: if it doesnt pose scheduling problems, just use (mNumMaxPhotons,1,1), or see the almighty reason in the shader (maybe it gets appearant after seeing the source)
 
-    //update AS with new photons
-    std::vector<uint64_t> photonBuildSize = {mNumMaxPhotons}; //ma boy really cant go without his vectors (i will do unspeakable things if this turns into an error)
+    // Clear values after the counter
+    std::vector<ref<Buffer>> aabbs = {mpPhotonAABB[0], mpPhotonAABB[1]};
+    mpPhotonAS->clearAABBBuffers(pRenderContext, aabbs, true, mpPhotonCounter);
+
+    // Copy counter to CPU
+    handlePhotonCounter(pRenderContext);
+
+    // Build acceleration structure
+    uint2 currentPhotons = mFrameCount > 0 ? uint2(float2(mCurrentPhotonCount) * mASBuildBufferPhotonOverestimate) : mNumMaxPhotons;
+    std::vector<uint64_t> photonBuildSize = {
+        std::min(mNumMaxPhotons[0], currentPhotons[0]), std::min(mNumMaxPhotons[1], currentPhotons[1])
+    };
     mpPhotonAS->update(pRenderContext, photonBuildSize);
 }
 
