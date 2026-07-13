@@ -105,6 +105,17 @@ void PhotonMapperLight::setScene(RenderContext* pRenderContext, const ref<Scene>
     }
 }
 
+
+
+
+
+
+
+
+
+
+
+
 void PhotonMapperLight::prepareResources(RenderContext* pRenderContext, const RenderData& renderData)
 {
     //TODO: wird alles im konstruktor getan, einiges sollte aber vlt dynamisch wiederhotl werden können basierend auf bools die notwendigkeit dazu anzeigen, einiges kann auch zu set scene ausgelagert werden
@@ -133,12 +144,19 @@ void PhotonMapperLight::prepareResources(RenderContext* pRenderContext, const Re
         CustomAccelerationStructure::UpdateMode::All);
 
 
+    // Photon counter
+    if (!mpPhotonCounter)
+    {
+        mpPhotonCounter = Buffer::createStructured(
+            mpDevice, sizeof(uint), /*2*/ 1, ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess, Buffer::CpuAccess::None,
+            nullptr, false
+        );
+        mpPhotonCounter->setName("PhotonCounter");
 
-
-
-    
-
-    
+        mpPhotonCounterCPU =
+            Buffer::createStructured(mpDevice, sizeof(uint), /*2*/ 1, ResourceBindFlags::None, Buffer::CpuAccess::Read, nullptr, false);
+        mpPhotonCounterCPU->setName("PhotonCounterCPU");
+    }
 
 }
 
@@ -185,13 +203,13 @@ void PhotonMapperLight::tracePhotons(RenderContext* pRenderContext, const Render
 
 
 
-    //prepare ressources usw überprüfen ob wegen photon counter noch was initialisiert werden muss TTTTTTTTTOOOOODDDDOOOO
+    
     
 
     // Photon Mapper specific defines Trace
-    mTracePhotonPass.pProgram->addDefine("PHOTON_BUFFER_SIZE", std::to_string(mNumMaxPhotons));
-    mTracePhotonPass.pProgram->addDefine("ROUGHNESS_THRESHOLD", std::to_string(mSpecularRoughnessThreshold)); //no caustic vs global
-    // differentiation mTracePhotonPass.pProgram->addDefines(getMaterialDefines()); // TODO: add if needed in shader, fkt to add is
+    //mTracePhotonPass.pProgram->addDefine("PHOTON_BUFFER_SIZE", std::to_string(mNumMaxPhotons)); In CB now
+    //mTracePhotonPass.pProgram->addDefine("ROUGHNESS_THRESHOLD", std::to_string(mSpecularRoughnessThreshold)); //no caustic vs global   In CB now
+    mTracePhotonPass.pProgram->addDefines(getMaterialDefines()); // TODO: add if needed in shader, fkt to add is
     // lower in restir FG lite
 
     // shadervariables Trace
@@ -199,6 +217,8 @@ void PhotonMapperLight::tracePhotons(RenderContext* pRenderContext, const Render
     auto var = mTracePhotonPass.pVars->getRootVar();
     mpScene->setRaytracingShaderData(pRenderContext, var);
 
+    var["CB"]["kRoughnessThreshold"] = mSpecularRoughnessThreshold;
+    var["CB"]["kPhotonBufferSize"] = mNumMaxPhotons;
     var["CB"]["gFrameCount"] = mFrameCount;
     var["CB"]["gPhotonRadius"] = mPhotonRadius;
     var["CB"]["gMaxBounces"] = mPhotonMaxBounces; //no bounces
@@ -212,35 +232,37 @@ void PhotonMapperLight::tracePhotons(RenderContext* pRenderContext, const Render
     // shader output buffers (funily enough as variables)
     var["gPhotonAABB"] = mpPhotonAABB;
     var["gPhotonData"] = mpPhotonData;
-    var["gPhotonCounter"] = mpPhotonCounter;
+    // no photon counter since buffer gets filled up every time
+    //current problem with photon counter seems to be that number of photons increases all the time
     
 
 
 
     //dispatch raytraces (which fill AABB buffer)
     mpScene->raytrace(
-        pRenderContext, mTracePhotonPass.pProgram.get(), mTracePhotonPass.pVars, uint3(mShaderDispatchDim, mShaderDispatchDim, 1) //Photon buffer size = dispatchdim**2, so it fills up exactly. 
+        pRenderContext, mTracePhotonPass.pProgram.get(), mTracePhotonPass.pVars, uint3(mShaderDispatchDim, mShaderDispatchDim, 1) //Photon buffer size = dispatchdim**2 * num_bounces, each shader creates up to num_bounces photons, so it fills up exactly. 
     ); //TODO: if it doesnt pose scheduling problems, just use (mNumMaxPhotons,1,1), or see the almighty reason in the shader (maybe it gets appearant after seeing the source)
 
     // Clear values after the counter
-    std::vector<ref<Buffer>> aabbs = {mpPhotonAABB /*[0], mpPhotonAABB[1]*/};
-    mpPhotonAS->clearAABBBuffers(pRenderContext, aabbs, true, mpPhotonCounter);
+    //std::vector<ref<Buffer>> aabbs = {mpPhotonAABB /*[0], mpPhotonAABB[1]*/};
+    //mpPhotonAS->clearAABBBuffers(pRenderContext, aabbs, true, mpPhotonCounter);
 
     // Copy counter to CPU
-    handlePhotonCounter(pRenderContext);
+    //handlePhotonCounter(pRenderContext);
 
     // Build acceleration structure
-    uint/*2*/ currentPhotons = mFrameCount > 0 ? uint/*2*/(float/*2*/(mCurrentPhotonCount) * mASBuildBufferPhotonOverestimate) : mNumMaxPhotons;
-    std::vector<uint64_t> photonBuildSize = {
-        std::min(mNumMaxPhotons /*[0]*/, currentPhotons /*[0]*/) /*, std::min(mNumMaxPhotons[1], currentPhotons[1])*/
-    };
+    //uint/*2*/ currentPhotons = mFrameCount > 0 ? uint/*2*/(float/*2*/(mCurrentPhotonCount) * mASBuildBufferPhotonOverestimate) : mNumMaxPhotons;
+    //std::vector<uint64_t> photonBuildSize = {
+        //std::min(mNumMaxPhotons /*[0]*/, currentPhotons /*[0]*/) /*, std::min(mNumMaxPhotons[1], currentPhotons[1])*/
+    //};
+    std::vector<uint64_t> photonBuildSize = {mNumMaxPhotons}; // jedes mal voller build. Wer weis ob das was wird
     mpPhotonAS->update(pRenderContext, photonBuildSize);
 }
 
 void PhotonMapperLight::handlePhotonCounter(RenderContext* pRenderContext)
 {
     // Copy the photonCounter to a CPU Buffer (asynchronous, read GPU value can be a couple of frames old)
-    pRenderContext->copyBufferRegion(mpPhotonCounterCPU.get(), 0, mpPhotonCounter.get(), 0, sizeof(uint2));
+    pRenderContext->copyBufferRegion(mpPhotonCounterCPU.get(), 0, mpPhotonCounter.get(), 0, sizeof(uint/*2*/));
 
     void* data = mpPhotonCounterCPU->map(Buffer::MapType::Read);
     std::memcpy(&mCurrentPhotonCount, data, sizeof(uint2));
@@ -296,8 +318,13 @@ void PhotonMapperLight::execute(RenderContext* pRenderContext, const RenderData&
     if (!mpScene)
         return;
     prepareResources(pRenderContext, renderData);
+
+    // Clear Photon Counter before tracing the Photons for this frame
+    //pRenderContext->clearUAV(mpPhotonCounter->getUAV().get(), uint4(0));
     tracePhotons(pRenderContext, renderData);
+
     collectPhotons(pRenderContext, renderData);
+
     mFrameCount++;
 
     // renderData holds the requested resources
@@ -330,6 +357,15 @@ void PhotonMapperLight::RayTraceProgramHelper::initProgramVars(
     pSampleGenerator->setShaderData(var);
 }
 
+DefineList PhotonMapperLight::getMaterialDefines()
+{
+    DefineList defines;
+    defines.add("DiffuseBrdf", mUseLambertianDiffuse ? "DiffuseBrdfLambert" : "DiffuseBrdfFrostbite");
+    defines.add("enableDiffuse", "1");
+    defines.add("enableSpecular", "1");
+    defines.add("enableTranslucency", "1");
+    return defines;
+}
 
 
 

@@ -20,14 +20,16 @@ cbuffer CB
     bool kUseAnalytic;
     float gMixedLightsAnalyticProbability;
     float gGlobalRejectionProb; // Rejection Probability for global photons
+    float kRoughnessThreshold;
+    uint kPhotonBufferSize;
 }
 
 RWStructuredBuffer<AABB> gPhotonAABB;
 RWStructuredBuffer<PhotonData> gPhotonData;
-RWStructuredBuffer<uint> gPhotonCounter;
+//RWStructuredBuffer<uint> gPhotonCounter;
 
-static const float kRoughnessThreshold = ROUGHNESS_THRESHOLD;
-static const uint kPhotonBufferSize = PHOTON_BUFFER_SIZE;
+//static const float kRoughnessThreshold = ROUGHNESS_THRESHOLD; in the CB because it want working somehow
+//atic const uint kPhotonBufferSize = PHOTON_BUFFER_SIZE; in CB
 static const bool kRussianRoulette = true;
 
 struct RayPayload //payload is the single output of hit/miss shaders, so it is necessary
@@ -97,7 +99,7 @@ void rayGen()
 
     // Prepare photon
     PhotonData photon = PhotonData();
-    photon.flux = photonStartFlux;
+    photon.flux = pls.flux;
     photon.dir = -ray.Direction;
     photon.normalW = pls.normal;
 
@@ -130,11 +132,11 @@ void rayGen()
                 storePhoton = sampleNext1D(sg) <= gGlobalRejectionProb;
                 photon.flux *= invRejection;
             }
-            // Insert photon into buffer using a counter with interlocked add
+
             if (storePhoton) {
                 uint photonTypeIdx = (uint)photonType;
-                uint photonInsertIndex = 0;
-                InterlockedAdd(gPhotonCounter[0]/*[photonTypeIdx]*/, 1u, photonInsertIndex); //because its a buffer i need to acces an element, counter is the first and only element
+                uint photonInsertIndex = (uint(DispatchRaysIndex().x) * gDispatchDimension) + (uint(DispatchRaysIndex().y)) + (i* gDispatchDimension * gDispatchDimension);
+                //InterlockedAdd(gPhotonCounter[0]/*[photonTypeIdx]*/, 1u, photonInsertIndex); //because its a buffer i need to acces an element, counter is the first and only element
                 if (photonInsertIndex <= kPhotonBufferSize/*[photonTypeIdx]*/)
                 {
                     AABB photonAABB = AABB(sd.posW - gPhotonRadius/*[photonTypeIdx]*/, sd.posW + gPhotonRadius/*[photonTypeIdx]*/); //photon will be classified and stored with usual Photon mapping logic, yet stored as world photon regardless of type, wont matter in fully diffuse scenes anyway

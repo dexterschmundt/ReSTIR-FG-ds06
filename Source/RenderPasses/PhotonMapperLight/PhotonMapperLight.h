@@ -70,9 +70,9 @@ private:
     ref<Buffer> mpPhotonData;
 
     //Photon trace params
-    uint mShaderDispatchDim = 256; // computed in FG_lite, here implemented as member
-    uint /*2*/ mNumMaxPhotons = mShaderDispatchDim * mShaderDispatchDim; /* TODO vlt irwann mal im konstruktor setzen*/                     
+    uint mShaderDispatchDim = 256; // sqrt of how much photon paths are generated per frame.
     int mPhotonMaxBounces = 5; 
+    uint mNumMaxPhotons = mShaderDispatchDim * mShaderDispatchDim * mPhotonMaxBounces; //there is always enough space for all photons, mostly not filled up that much because of rejection. AS also gets built with actual photons because of Photon counter                    
     float mGlobalPhotonRejection = 0.3f;
     float mPhotonRadius = 0.020f; // only one value since no caustic ones used
     float mMixedLightsAnalyticProbability = 0.5f; // i have no clue man
@@ -83,6 +83,8 @@ private:
     ref<Buffer> mpPhotonCounterCPU;
     uint/*2*/ mCurrentPhotonCount = mNumMaxPhotons;
     float mASBuildBufferPhotonOverestimate = 1.15f;
+
+    bool mUseLambertianDiffuse = true; 
 
 
 
@@ -128,4 +130,6 @@ private:
 
     void PhotonMapperLight::collectPhotons(RenderContext* pRenderContext, const RenderData& renderData);
     // looping execution of photon tracing
+
+    DefineList PhotonMapperLight::getMaterialDefines();
 };
