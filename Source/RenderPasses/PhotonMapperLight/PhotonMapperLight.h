@@ -90,7 +90,21 @@ private:
     uint/*2*/ mCurrentPhotonCount = mNumMaxPhotons;
     float mASBuildBufferPhotonOverestimate = 1.15f;
 
-    bool mUseLambertianDiffuse = true; 
+    bool mUseLambertianDiffuse = true;
+
+
+    // Resampling stuff
+    struct ResamplingSettings
+    {
+        bool enable = true;
+        uint confidenceCap = 10;                // Maximum confidence allowed //confidence is the maximum amount of samples a reservoir is allowed to claim to combine, the lower its set, the less weight the old samples get and therefore the commitment to old samples (weird dots that stay) and also the correlation gets lower (less weight to old samples), but in general less samples are kept (less weigh to them) so average is worse
+        uint spatialSamples = 0;                // Number of spatial samples, none because no spatial resampling
+        uint disocclusionBoostExtraSamples = 0; // Number of spatial samples if no temporal surface was found
+        float samplingRadius = 20.f;            // Sampling radius in pixel
+    };
+
+    ResamplingSettings mResampleSettings = {};
+    float mNormalThreshold = 0.6f;  
 
 
 
@@ -117,6 +131,7 @@ private:
     RayTraceProgramHelper mTracePhotonPass;
     ref<ComputePass> mCollectPhotonPass;
     ref<ComputePass> mTemporalResamplePass;
+    ref<ComputePass> mpFinalizeColorPass;
 
 
 
@@ -136,6 +151,8 @@ private:
     void PhotonMapperLight::collectPhotons(RenderContext* pRenderContext, const RenderData& renderData);
     
     void PhotonMapperLight::TemporalResampling(RenderContext* pRenderContext, const RenderData& renderData);
+
+    void PhotonMapperLight::FinalizeColors(RenderContext* pRenderContext, const RenderData& renderData);
 
     DefineList PhotonMapperLight::getMaterialDefines();
 };

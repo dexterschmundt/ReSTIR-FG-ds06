@@ -32,13 +32,14 @@ namespace
 const char kShaderTracePhotons[] = "RenderPasses/PhotonMapperLight/TracePhotons.rt.slang";
 const char kShaderCollectPhotons[] = "RenderPasses/PhotonMapperLight/CollectPhotons.cs.slang";
 const char kShaderTemporalResampling[] = "RenderPasses/PhotonMapperLight/TemporalResampling.cs.slang";
+const char kShaderFinalizeColors[] = "RenderPasses/PhotonMapperLight/FinalizeColors.cs.slang";
 
 const std::string kInputVBuffer = "vbuffer"; //so i can just quickly access the texture with render context[thisVariable]
 const std::string kInputMotionVectors = "mvec";
 
 const ChannelList kInputChannels = {
     {kInputVBuffer, "gVBuffer", "Visibility buffer in packed format", false, ResourceFormat::RGBA32Uint}, // is the type of VisibilityBuffers supplied by falcor
-    {kInputMotionVectors, "gMotionVectors", "Motion vector buffer (float format)", true /*but just because i didnt implement it yet. Its not like i want you to be optional or anything, baka!!!*/},      // appearantly i am going insane      
+    {kInputMotionVectors, "gMotionVectors", "Motion vector buffer (float format)", false /*but just because i didnt implement it yet. Its not like i want you to be optional or anything, baka!!!*/},      // appearantly i am going insane      
                                                                                                       // falcor
 };
 
@@ -65,6 +66,10 @@ PhotonMapperLight::PhotonMapperLight(ref<Device> pDevice, const Properties& prop
     {
         throw RuntimeError("ReSTIR_FG: Raytracing Tier 1.1 is not supported by the current device");
     }
+
+    // making sure NO Spatial resamples
+    // mResampleSettings.spatialSamples = 0;
+    // wont get passed anywhere anyway
 
 
     // Create sample generator only on construction
@@ -132,6 +137,10 @@ void PhotonMapperLight::execute(RenderContext* pRenderContext, const RenderData&
     tracePhotons(pRenderContext, renderData);
 
     collectPhotons(pRenderContext, renderData);
+
+    TemporalResampling(pRenderContext, renderData);
+
+    FinalizeColors(pRenderContext, renderData);
 
     mFrameCount++;
     mCanResample = true; //because after one frame Reservoirs are filled
@@ -397,6 +406,13 @@ void PhotonMapperLight::TemporalResampling(RenderContext* pRenderContext, const 
         mTemporalResamplePass = ComputePass::create(mpDevice, desc, defines, true);
     }
 
+    // if PrevReservoirCaustic isnt filled, then no resampling possible
+    if (!mCanResample) 
+    {
+        return;
+    }
+
+    // usual stuff for cs shader
     auto var = mTemporalResamplePass->getRootVar();
     mpScene->setRaytracingShaderData(pRenderContext, var);
     mpSampleGenerator->setShaderData(var);
@@ -404,24 +420,71 @@ void PhotonMapperLight::TemporalResampling(RenderContext* pRenderContext, const 
     // Constant Buffer
     var["CB"]["gFrameCount"] = mFrameCount;
     var["CB"]["gFrameDim"] = renderData.getDefaultTextureDims();
+    var["CB"]["gConfidenceLimit"] = mResampleSettings.confidenceCap;
+    //var["CB"]["gSpatialRadius"] = mResampleSettings.samplingRadius;
+    //var["CB"]["gSpatialSamples"] = mResampleSettings.spatialSamples;
+    //var["CB"]["gDisocclusionBoostSpatialSamples"] = mResampleSettings.disocclusionBoostExtraSamples;
+    var["CB"]["gNormalThreshold"] = mNormalThreshold;
+    var["CB"]["gPhotonRadius"] = mPhotonRadius;
 
     // Input Resources
-    var["gVBuffer"] = renderData[kInputVBuffer]->asTexture(); // this seems to be how input textures get accessed
-    mpPhotonAS->bindTlas(var, "gPhotonAS");                   // gets assigned in a bit different way i guess
-    var["gPhotonAABB"] = mpPhotonAABB;
-    var["gPhotonData"] = mpPhotonData;
+    var["gMVec"] = renderData[kInputMotionVectors]->asTexture();
+    var["gPrevCausticReservoir"] = mpCausticReservoir[(mFrameCount + 1) % 2];
 
     // Output ressources
-    var["gEmission"] = renderData[kOutputColor]->asTexture();
-    var["gCurrCausticReservoir"] = mpCausticReservoir[mFrameCount % 2]; // index for Ping pong rendering
-    var["gPrevCausticReservoir"] = mpCausticReservoir[(mFrameCount + 1) % 2];
+    var["gCurrCausticReservoir"] = mpCausticReservoir[mFrameCount % 2];
+    
 
     const uint2 targetDim = renderData.getDefaultTextureDims();
     FALCOR_ASSERT(targetDim.x > 0 && targetDim.y > 0);
-    mCollectPhotonPass->execute(pRenderContext, uint3(targetDim, 1));
+    mTemporalResamplePass->execute(pRenderContext, uint3(targetDim, 1));
+}
 
-    // barrier to make sure Reservoirs are filled before further steps
-    pRenderContext->uavBarrier(mpCausticReservoir[mFrameCount % 2].get());
+
+void PhotonMapperLight::FinalizeColors(RenderContext* pRenderContext, const RenderData& renderData)
+{
+    if (!mpFinalizeColorPass)
+    {
+        Program::Desc desc;
+        desc.addShaderModules(mpScene->getShaderModules());
+        desc.addShaderLibrary(kShaderFinalizeColors).csEntry("main").setShaderModel("6_5");
+        desc.addTypeConformances(mpScene->getTypeConformances());
+
+        DefineList defines;
+        defines.add(mpScene->getSceneDefines());
+        defines.add(mpSampleGenerator->getDefines());
+        //defines.add("USE_ENV_BACKROUND", mpScene->useEnvBackground() ? "1" : "0"); dont want any trouble with that
+        //defines.add(mpRTXDI->getDefines());
+        defines.add(getMaterialDefines());
+
+        mpFinalizeColorPass = ComputePass::create(mpDevice, desc, defines, true);
+    }
+
+    // usual stuff for cs shader
+    auto var = mpFinalizeColorPass->getRootVar();
+    mpScene->setRaytracingShaderData(pRenderContext, var); 
+    mpSampleGenerator->setShaderData(var);                 
+
+    // Constant Buffer
+    var["CB"]["gFrameCount"] = mFrameCount;
+    var["CB"]["gFrameDim"] = renderData.getDefaultTextureDims();
+
+    // RTXDI resources
+    //mpRTXDI->setShaderData(var);
+
+    // Input
+    var["gVBuffer"] = renderData[kInputVBuffer]->asTexture();
+    //var["gFinalGatherReservoir"] = mpFinalGatherReservoir[mFrameCount % 2];
+    var["gCausticReservoir"] = mpCausticReservoir[mFrameCount % 2];
+    //var["gEmission"] = renderData[kOutputColor]->asTexture();
+
+    // Output
+    var["gColor"] = renderData[kOutputColor]->asTexture(); //emission is also in there
+
+    // Execute
+    const uint2 targetDim = renderData.getDefaultTextureDims();
+    FALCOR_ASSERT(targetDim.x > 0 && targetDim.y > 0);
+    mpFinalizeColorPass->execute(pRenderContext, uint3(targetDim, 1));
 }
 
 

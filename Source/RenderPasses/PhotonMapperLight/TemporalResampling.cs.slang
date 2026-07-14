@@ -14,24 +14,23 @@ cbuffer CB
     uint2 gFrameDim;                        // Frame Dimensions
     uint gConfidenceLimit;                  // Confidence Limit
 
-    uint gSpatialSamples;                   // Number of spatial samples
-    uint gDisocclusionBoostSpatialSamples;  // How many extra spatial samples if temporal resampling fails
-    float gSpatialRadius;                   // (Pixel)radius for spatial resampling
+    //uint gSpatialSamples;                   // Number of spatial samples
+    //uint gDisocclusionBoostSpatialSamples;  // How many extra spatial samples if temporal resampling fails
+    //float gSpatialRadius;                   // (Pixel)radius for spatial resampling
     float gNormalThreshold;                 // Normal Threshold
 
-    float2 gPhotonRadius;                   // Collection radius Global / Caustic
-    uint2 _pad;
+    float gPhotonRadius;                   // Collection radius Global / Caustic, just that there are only global ones here
 }
 
 Texture2D<float2> gMVec;
-StructuredBuffer<ReservoirCaustic> gCausticReservoirPrev;
+StructuredBuffer<ReservoirCaustic> gPrevCausticReservoir;
 
-RWStructuredBuffer<ReservoirCaustic> gCausticReservoir;
+RWStructuredBuffer<ReservoirCaustic> gCurrCausticReservoir;
 
 static const uint kMIHints = (uint)MaterialInstanceHints::AdjustShadingNormal;
 
 inline float getPhotonRadius(ReservoirCaustic r) {
-    return r.pathLength == 0 ? gPhotonRadius.y : gPhotonRadius.x;
+    return gPhotonRadius;
 }
 
 /*  Generalized Balance Heuristic with two samples
@@ -139,7 +138,7 @@ bool resampleReservoir(inout ReservoirCaustic current, ShadingData currentSD, BS
         return false;
 
     //Fetch the (spatio)temporal reservoir
-    ReservoirCaustic temporal = gCausticReservoirPrev[index2Dto1D(resamplePixel, gFrameDim.x)];
+    ReservoirCaustic temporal = gPrevCausticReservoir[index2Dto1D(resamplePixel, gFrameDim.x)];
     HitInfo temporalHit = HitInfo(temporal.sampleSurface);
     if (!temporalHit.isValid()) {
         return false;
@@ -163,7 +162,7 @@ void main(uint2 pixel: SV_DispatchThreadID)
     let lod = ExplicitLodTextureSampler(0.f);
     SampleGenerator sg = SampleGenerator(pixel, gFrameCount * 5 + 3);
 
-    ReservoirCaustic current = gCausticReservoir[index2Dto1D(pixel, gFrameDim.x)];
+    ReservoirCaustic current = gCurrCausticReservoir[index2Dto1D(pixel, gFrameDim.x)];
     HitInfo currentHit = HitInfo(current.sampleSurface);
 
     if (!currentHit.isValid())
@@ -192,17 +191,17 @@ void main(uint2 pixel: SV_DispatchThreadID)
 
     //
     // Spatiotemporal Resampling
-    //
-    uint spatialSamples = resamplingSuccesfull ? gSpatialSamples : gSpatialSamples + gDisocclusionBoostSpatialSamples;
-    for (uint i = 0; i < spatialSamples; i++) {
-        // Sample in a disc radius around the reprojected sample
-        float2 spatialOffset = gSpatialRadius * sample_disk_concentric(sampleNext2D(sg));
-        float2 spatialPixelF = prevPixelF + spatialOffset;
-        int2 spatialPixel = int2(spatialPixelF);
+    // none of that here
+    //uint spatialSamples = resamplingSuccesfull ? gSpatialSamples : gSpatialSamples + gDisocclusionBoostSpatialSamples;
+    //for (uint i = 0; i < spatialSamples; i++) {
+        // // Sample in a disc radius around the reprojected sample
+        // float2 spatialOffset = gSpatialRadius * sample_disk_concentric(sampleNext2D(sg));
+        // float2 spatialPixelF = prevPixelF + spatialOffset;
+        // int2 spatialPixel = int2(spatialPixelF);
 
-        resampleReservoir(current, currentSD, currentBsdfProperties, sg, spatialPixel);
-    }
+        // resampleReservoir(current, currentSD, currentBsdfProperties, sg, spatialPixel);
+    // }
 
     //Store final reservoir
-    gCausticReservoir[index2Dto1D(pixel, gFrameDim.x)] = current;
+    gCurrCausticReservoir[index2Dto1D(pixel, gFrameDim.x)] = current;
 }
