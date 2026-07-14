@@ -27,7 +27,7 @@ static const uint kMIHints = (uint)MaterialInstanceHints::AdjustShadingNormal;
     \param[in/out] Random Number Generator
     \return Radiance of the evaluated reserovir
 */
-//missing because no FG
+//missing because no FG in this pass
 
 /*  Evaluates the (caustic) photon reservoir
     \param[in] Current Pixel
@@ -105,3 +105,6 @@ void main(uint2 pixel: SV_DispatchThreadID)
 
     gColor[pixel] = float4(outColor, 1.0);
 }
+
+// wie is das geplant mit "alles addieren?" Funktioniert das so frfr?
+// wie ist das mit dem addieren des radiance estimate gedacht? Sollen das eiglt nur kaustiken sein oder wie? (bei mir sinds jetzt halt alle)

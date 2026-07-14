@@ -192,6 +192,7 @@ void main(uint2 pixel: SV_DispatchThreadID)
     //
     // Spatiotemporal Resampling
     // none of that here
+    //
     //uint spatialSamples = resamplingSuccesfull ? gSpatialSamples : gSpatialSamples + gDisocclusionBoostSpatialSamples;
     //for (uint i = 0; i < spatialSamples; i++) {
         // // Sample in a disc radius around the reprojected sample
