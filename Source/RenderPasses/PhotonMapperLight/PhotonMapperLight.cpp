@@ -31,12 +31,14 @@ namespace
 {
 const char kShaderTracePhotons[] = "RenderPasses/PhotonMapperLight/TracePhotons.rt.slang";
 const char kShaderCollectPhotons[] = "RenderPasses/PhotonMapperLight/CollectPhotons.cs.slang";
+const char kShaderTemporalResampling[] = "RenderPasses/PhotonMapperLight/TemporalResampling.cs.slang";
 
 const std::string kInputVBuffer = "vbuffer"; //so i can just quickly access the texture with render context[thisVariable]
+const std::string kInputMotionVectors = "mvec";
 
 const ChannelList kInputChannels = {
-    {kInputVBuffer, "gVBuffer", "Visibility buffer in packed format", false, ResourceFormat::RGBA32Uint}, // is the type of
-                                                                                                          // VisibilityBuffers supplied by
+    {kInputVBuffer, "gVBuffer", "Visibility buffer in packed format", false, ResourceFormat::RGBA32Uint}, // is the type of VisibilityBuffers supplied by falcor
+    {kInputMotionVectors, "gMotionVectors", "Motion vector buffer (float format)", true /*but just because i didnt implement it yet. Its not like i want you to be optional or anything, baka!!!*/},      // appearantly i am going insane      
                                                                                                       // falcor
 };
 
@@ -47,12 +49,6 @@ const ChannelList kOutputChannels = {
 };
 } // namespace
 
-
-
-
-
-
-
 extern "C" FALCOR_API_EXPORT void registerPlugin(Falcor::PluginRegistry& registry)
 {
     registry.registerClass<RenderPass, PhotonMapperLight>();
@@ -61,14 +57,24 @@ extern "C" FALCOR_API_EXPORT void registerPlugin(Falcor::PluginRegistry& registr
 PhotonMapperLight::PhotonMapperLight(ref<Device> pDevice, const Properties& props)
     : RenderPass(pDevice)
 {
+    if (!mpDevice->isShaderModelSupported(Device::ShaderModel::SM6_5))
+    {
+        throw RuntimeError("ReSTIR_FG: Shader Model 6.5 is not supported by the current device");
+    }
+    if (!mpDevice->isFeatureSupported(Device::SupportedFeatures::RaytracingTier1_1))
+    {
+        throw RuntimeError("ReSTIR_FG: Raytracing Tier 1.1 is not supported by the current device");
+    }
+
+
+    // Create sample generator only on construction
+    mpSampleGenerator = SampleGenerator::create(mpDevice, SAMPLE_GENERATOR_UNIFORM);
 }
 
 Properties PhotonMapperLight::getProperties() const
 {
     return {};
 }
-
-void PhotonMapperLight::renderUI(Gui::Widgets& widget) {}
 
 RenderPassReflection PhotonMapperLight::reflect(const CompileData& compileData)
 {
@@ -78,6 +84,12 @@ RenderPassReflection PhotonMapperLight::reflect(const CompileData& compileData)
     return reflector;
 }
 
+void PhotonMapperLight::renderUI(Gui::Widgets& widget) {}
+
+
+
+
+
 void PhotonMapperLight::setScene(RenderContext* pRenderContext, const ref<Scene>& pScene)
 {
     // Reset Scene
@@ -85,7 +97,6 @@ void PhotonMapperLight::setScene(RenderContext* pRenderContext, const ref<Scene>
 
     // Reset all passes and sampling helpers
     mpPhotonAS.reset();
-    // mpEmissiveLightSampler.reset();
     // mpRTXDI.reset();
     // mResetScreenTex = true;
     // mChangePhotonLightBufferSize = true;
@@ -110,41 +121,65 @@ void PhotonMapperLight::setScene(RenderContext* pRenderContext, const ref<Scene>
 
 
 
+void PhotonMapperLight::execute(RenderContext* pRenderContext, const RenderData& renderData)
+{
+    if (!mpScene)
+        return;
+    prepareResources(pRenderContext, renderData);
+
+    // // Clear Photon Counter before tracing the Photons for this frame
+    // pRenderContext->clearUAV(mpPhotonCounter->getUAV().get(), uint4(0));
+    tracePhotons(pRenderContext, renderData);
+
+    collectPhotons(pRenderContext, renderData);
+
+    mFrameCount++;
+    mCanResample = true; //because after one frame Reservoirs are filled
+
+    // renderData holds the requested resources
+    // auto& pTexture = renderData.getTexture("src");
+}
 
 
 
-
-
-
+// stuff that needs to be done every frame before any pass
 void PhotonMapperLight::prepareResources(RenderContext* pRenderContext, const RenderData& renderData)
 {
-    //TODO: wird alles im konstruktor getan, einiges sollte aber vlt dynamisch wiederhotl werden können basierend auf bools die notwendigkeit dazu anzeigen, einiges kann auch zu set scene ausgelagert werden
-    // alles was ich dachte was vlt nur ein mal on construction getan werden muss is hier drin, nur weniges ist in set scene
-    // glücklicher weise muss dieser shi nur ein mal in der cornell box laufen
-
-    mpSampleGenerator = SampleGenerator::create(mpDevice, SAMPLE_GENERATOR_UNIFORM);
+    //all the stuff in if statements could probably be done in h file since this pass doesnt support any changes in params anyway, those will never trigger after being executed once
 
     auto& pLights = mpScene->getLightCollection(pRenderContext);
     pLights->prepareSyncCPUData(pRenderContext);
 
-    //Photon AS and corresponding data
-    mpPhotonAABB = Buffer::createStructured( //gets filled by shaders with AABB that represent photons with their radius
-        mpDevice, sizeof(AABB), mNumMaxPhotons, ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess,
-        Buffer::CpuAccess::None, nullptr, false);
-    mpPhotonAABB->setName("PhotonAABB");
-    mpPhotonData = Buffer::createStructured( //contains photon data corresponding to AABB at same index
-        mpDevice, sizeof(float) * 12 /*TODO: anpassen auf sowas wie sizeof(photonStruct) wenn ich das mal endlich finde*/, mNumMaxPhotons, ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess,
-        Buffer::CpuAccess::None, nullptr, false);
-    mpPhotonData->setName("PhotonData");
+    //no analytic lights used stuff, since i just pass it as Variable to shaders that need it, no emmissive sampler fortunately
 
-    std::vector<uint64_t> aabbCount = {mNumMaxPhotons}; //my little guy requires his vectors
-    std::vector<uint64_t> aabbGPUAddress = {mpPhotonAABB->getGpuAddress()};
-    mpPhotonAS = std::make_unique<CustomAccelerationStructure>(
-        mpDevice, aabbCount, aabbGPUAddress, CustomAccelerationStructure::BuildMode::FastBuild,
-        CustomAccelerationStructure::UpdateMode::All);
+    //Photon AS and corresponding data 
+    //if (!mpPhotonAABB) //this and As could probably be done in h file, but i dont care. It gets done only once this way too
+    {
+        mpPhotonAABB = Buffer::createStructured( // gets filled by shaders with AABB that represent photons with their radius
+            mpDevice, sizeof(AABB), mNumMaxPhotons, ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess,
+            Buffer::CpuAccess::None, nullptr, false
+        );
+        mpPhotonAABB->setName("PhotonAABB");
+        mpPhotonData = Buffer::createStructured( // contains photon data corresponding to AABB at same index
+            mpDevice, sizeof(float) * 12 /*TODO: anpassen auf sowas wie sizeof(photonStruct) wenn ich das mal endlich finde*/,
+            mNumMaxPhotons, ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess, Buffer::CpuAccess::None, nullptr, false
+        );
+        mpPhotonData->setName("PhotonData");
+    }
+    
+
+    //if (!mpPhotonAS) //somehow made everything accumulate indefinitely, so no doing that for AS or ABBBuffer i guess
+    {
+        std::vector<uint64_t> aabbCount = {mNumMaxPhotons}; // my little guy requires his vectors
+        std::vector<uint64_t> aabbGPUAddress = {mpPhotonAABB->getGpuAddress()};
+        mpPhotonAS = std::make_unique<CustomAccelerationStructure>(
+            mpDevice, aabbCount, aabbGPUAddress, CustomAccelerationStructure::BuildMode::FastBuild,
+            CustomAccelerationStructure::UpdateMode::TLASOnly
+        );
+    }
 
 
-    // Photon counter
+    // Photon counter 
     if (!mpPhotonCounter)
     {
         mpPhotonCounter = Buffer::createStructured(
@@ -158,12 +193,30 @@ void PhotonMapperLight::prepareResources(RenderContext* pRenderContext, const Re
         mpPhotonCounterCPU->setName("PhotonCounterCPU");
     }
 
+    for (uint i = 0; i < 2; i++)
+    {
+        if (!mpCausticReservoir[i])
+        {
+            uint2 ScreenDims = renderData.getDefaultTextureDims();
+            mCanResample = false;
+            mpCausticReservoir[i] = Buffer::createStructured(
+                mpDevice, 112u, ScreenDims.x * ScreenDims.y,
+                ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess,
+                Buffer::CpuAccess::None, nullptr, false
+            );
+            mpCausticReservoir[i]->setName("CausticReservoir" + std::to_string(i));
+        }
+    }
+
 }
 
+
+// Traces Photons (with indirections this time) and stores them in AABB for inverse radius search
+// since i didnt bother with Photon counter there are a lot of old Photons every pass. Didnt produce any problems though so i dont care. Photon counter wont eliminate them anyway since it only estimates, just reduce them, so its ok i guess
 void PhotonMapperLight::tracePhotons(RenderContext* pRenderContext, const RenderData& renderData)
 {
 
-    if (!mTracePhotonPass.pProgram) //create and compile, only if not done yet /could be doen in constructer but nah
+    if (!mTracePhotonPass.pProgram) //create and compile, only if not done yet /could be doen in h file but nah
     {
         // shader library Trace
         RtProgram::Desc desc;
@@ -201,10 +254,6 @@ void PhotonMapperLight::tracePhotons(RenderContext* pRenderContext, const Render
         mTracePhotonPass.pProgram = RtProgram::create(mpDevice, desc, defines);
     }
 
-
-
-    
-    
 
     // Photon Mapper specific defines Trace
     //mTracePhotonPass.pProgram->addDefine("PHOTON_BUFFER_SIZE", std::to_string(mNumMaxPhotons)); In CB now
@@ -259,77 +308,120 @@ void PhotonMapperLight::tracePhotons(RenderContext* pRenderContext, const Render
     mpPhotonAS->update(pRenderContext, photonBuildSize);
 }
 
+// handles Photon counter
+// isnt used in here currently because it didnt work immediately (while the "big buffer" solution does) and since time = money it will stay like that until someone decides otherwise
 void PhotonMapperLight::handlePhotonCounter(RenderContext* pRenderContext)
 {
     // Copy the photonCounter to a CPU Buffer (asynchronous, read GPU value can be a couple of frames old)
     pRenderContext->copyBufferRegion(mpPhotonCounterCPU.get(), 0, mpPhotonCounter.get(), 0, sizeof(uint/*2*/));
 
     void* data = mpPhotonCounterCPU->map(Buffer::MapType::Read);
-    std::memcpy(&mCurrentPhotonCount, data, sizeof(uint2));
+    std::memcpy(&mCurrentPhotonCount, data, sizeof(uint/*2*/));
     mpPhotonCounterCPU->unmap();
 
     // Code for dynamic dispatch count missing. I wont do that and hope it works //TODO: wenn nicht dann hier ändern, code aus FG_Lite holen
 }
 
+
+//does inverse radius search to get radiance estimate, also computes reservoir for this frame
+// Photons get rejected and stored with logic that differentiates between caustic and global, but everything gets stored as global (with same radius), for that reason the caustic resampling also gets done for all photons (because again time = money and i wont implement a final gather for everything else)
 void PhotonMapperLight::collectPhotons(RenderContext* pRenderContext, const RenderData& renderData)
 {
     if (!mCollectPhotonPass)
     {
         // shader library collect
-        Program::Desc desc2;
-        desc2.addShaderModules(mpScene->getShaderModules());
-        desc2.addShaderLibrary(kShaderCollectPhotons).csEntry("main").setShaderModel("6_5");
-        desc2.addTypeConformances(mpScene->getTypeConformances());
+        Program::Desc desc;
+        desc.addShaderModules(mpScene->getShaderModules());
+        desc.addShaderLibrary(kShaderCollectPhotons).csEntry("main").setShaderModel("6_5");
+        desc.addTypeConformances(mpScene->getTypeConformances());
 
         // scene defines collect
-        DefineList defines2;
-        defines2.add(mpScene->getSceneDefines());
-        defines2.add(mpSampleGenerator->getDefines());
+        DefineList defines;
+        defines.add(mpScene->getSceneDefines());
+        defines.add(mpSampleGenerator->getDefines());
         // defines.add("USE_ENV_BACKROUND", mpScene->useEnvBackground() ? "1" : "0");
+        defines.add("ROUGHNESS_THRESHOLD", std::to_string(mSpecularRoughnessThreshold)); // wont get changed anyway, so here and not after the if
         // defines.add(mpRTXDI->getDefines());
-        // defines.add(getMaterialDefines()); //TODO: vlt muss ich das hier tatsächlich benutzen
+        defines.add(getMaterialDefines());
 
-        mCollectPhotonPass = ComputePass::create(mpDevice, desc2, defines2, true);
+        mCollectPhotonPass = ComputePass::create(mpDevice, desc, defines, true);
     }
-    // no initProgramVars for Compute shader
-    auto var2 = mCollectPhotonPass->getRootVar();
-    mpScene->setRaytracingShaderData(pRenderContext, var2); // funny calls i have to do
-    mpSampleGenerator->setShaderData(var2);                 // probably replaces //initProgramVars
-    // Constant Buffer collect
-    var2["CB"]["gFrameCount"] = mFrameCount;
-    var2["CB"]["gFrameDim"] = renderData.getDefaultTextureDims();
 
-    // Input Resources Collect
-    var2["gVBuffer"] = renderData[kInputVBuffer]->asTexture(); // this seems to be how input textures get accessed
-    mpPhotonAS->bindTlas(var2, "gPhotonAS");                   // gets assigned in a bit different way i guess
-    var2["gPhotonAABB"] = mpPhotonAABB;
-    var2["gPhotonData"] = mpPhotonData;
+    auto var = mCollectPhotonPass->getRootVar();
+    mpScene->setRaytracingShaderData(pRenderContext, var);
+    mpSampleGenerator->setShaderData(var);                 
 
-    // Output ressources Collect
-    var2["gOutColor"] = renderData[kOutputColor]->asTexture();
+    // Constant Buffer 
+    var["CB"]["gFrameCount"] = mFrameCount;
+    var["CB"]["gFrameDim"] = renderData.getDefaultTextureDims();
+
+    // Input Resources
+    var["gVBuffer"] = renderData[kInputVBuffer]->asTexture(); // this seems to be how input textures get accessed
+    mpPhotonAS->bindTlas(var, "gPhotonAS");                   // gets assigned in a bit different way i guess
+    var["gPhotonAABB"] = mpPhotonAABB;
+    var["gPhotonData"] = mpPhotonData;
+
+    // Output ressources
+    var["gEmission"] = renderData[kOutputColor]->asTexture();
+    var["gCurrCausticReservoir"] = mpCausticReservoir[mFrameCount % 2]; //index for Ping pong rendering
 
     const uint2 targetDim = renderData.getDefaultTextureDims();
     FALCOR_ASSERT(targetDim.x > 0 && targetDim.y > 0);
     mCollectPhotonPass->execute(pRenderContext, uint3(targetDim, 1));
+
+    //barrier to make sure Reservoirs are filled before further steps
+    pRenderContext->uavBarrier(mpCausticReservoir[mFrameCount % 2].get());
 }
 
-void PhotonMapperLight::execute(RenderContext* pRenderContext, const RenderData& renderData)
+
+void PhotonMapperLight::TemporalResampling(RenderContext* pRenderContext, const RenderData& renderData)
 {
-    if (!mpScene)
-        return;
-    prepareResources(pRenderContext, renderData);
+    if (!mTemporalResamplePass)
+    {
+        // shader library collect
+        Program::Desc desc;
+        desc.addShaderModules(mpScene->getShaderModules());
+        desc.addShaderLibrary(kShaderTemporalResampling).csEntry("main").setShaderModel("6_5");
+        desc.addTypeConformances(mpScene->getTypeConformances());
 
-    // Clear Photon Counter before tracing the Photons for this frame
-    //pRenderContext->clearUAV(mpPhotonCounter->getUAV().get(), uint4(0));
-    tracePhotons(pRenderContext, renderData);
+        // scene defines collect
+        DefineList defines;
+        defines.add(mpScene->getSceneDefines());
+        defines.add(mpSampleGenerator->getDefines());
+        // defines.add("USE_ENV_BACKROUND", mpScene->useEnvBackground() ? "1" : "0");
+        //defines.add("ROUGHNESS_THRESHOLD", std::to_string(mSpecularRoughnessThreshold)); // wont get changed anyway, so here and not after
+                                                                                         // the if
+        // defines.add(mpRTXDI->getDefines());
+        defines.add(getMaterialDefines());
 
-    collectPhotons(pRenderContext, renderData);
+        mTemporalResamplePass = ComputePass::create(mpDevice, desc, defines, true);
+    }
 
-    mFrameCount++;
+    auto var = mTemporalResamplePass->getRootVar();
+    mpScene->setRaytracingShaderData(pRenderContext, var);
+    mpSampleGenerator->setShaderData(var);
 
-    // renderData holds the requested resources
-    // auto& pTexture = renderData.getTexture("src");
+    // Constant Buffer
+    var["CB"]["gFrameCount"] = mFrameCount;
+    var["CB"]["gFrameDim"] = renderData.getDefaultTextureDims();
 
+    // Input Resources
+    var["gVBuffer"] = renderData[kInputVBuffer]->asTexture(); // this seems to be how input textures get accessed
+    mpPhotonAS->bindTlas(var, "gPhotonAS");                   // gets assigned in a bit different way i guess
+    var["gPhotonAABB"] = mpPhotonAABB;
+    var["gPhotonData"] = mpPhotonData;
+
+    // Output ressources
+    var["gEmission"] = renderData[kOutputColor]->asTexture();
+    var["gCurrCausticReservoir"] = mpCausticReservoir[mFrameCount % 2]; // index for Ping pong rendering
+    var["gPrevCausticReservoir"] = mpCausticReservoir[(mFrameCount + 1) % 2];
+
+    const uint2 targetDim = renderData.getDefaultTextureDims();
+    FALCOR_ASSERT(targetDim.x > 0 && targetDim.y > 0);
+    mCollectPhotonPass->execute(pRenderContext, uint3(targetDim, 1));
+
+    // barrier to make sure Reservoirs are filled before further steps
+    pRenderContext->uavBarrier(mpCausticReservoir[mFrameCount % 2].get());
 }
 
 
@@ -337,6 +429,7 @@ void PhotonMapperLight::execute(RenderContext* pRenderContext, const RenderData&
 
 
 
+// funny function that initializes the funny RTXProgram helper that got used in the code i blatantly copied so i use it here too
 void PhotonMapperLight::RayTraceProgramHelper::initProgramVars(
     ref<Device> pDevice,
     ref<Scene> pScene,
@@ -357,6 +450,7 @@ void PhotonMapperLight::RayTraceProgramHelper::initProgramVars(
     pSampleGenerator->setShaderData(var);
 }
 
+// Ah yes, me when the 5 lines of code may be reused with a probability of the /epsilon used to define continuity so i put it into another function, and the one who copies it is too lazy to deal with the name conflicts that may come up if they just copy the code inline
 DefineList PhotonMapperLight::getMaterialDefines()
 {
     DefineList defines;

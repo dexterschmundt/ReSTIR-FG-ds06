@@ -69,6 +69,12 @@ private:
     ref<Buffer> mpPhotonAABB;
     ref<Buffer> mpPhotonData;
 
+    //Ressources for Resampling
+    ref<Buffer> mpCausticReservoir[2]; // Screenspace Reservoir for the Caustic sample Photon, two not because caustic and global Photons, but for pingPongRendering for temporal resample
+    bool mCanResample = false; //to indicate that second buffer isnt filled on first frame. Could be done with frame count since nothing in this entire pass is made to ever change anything, but i do it like this for compatibility
+
+
+
     //Photon trace params
     uint mShaderDispatchDim = 256; // sqrt of how much photon paths are generated per frame.
     int mPhotonMaxBounces = 5; 
@@ -78,7 +84,7 @@ private:
     float mMixedLightsAnalyticProbability = 0.5f; // i have no clue man
     float mSpecularRoughnessThreshold = 0.25f;
 
-    //Photon counter stuff
+    //Photon counter stuff (that wont get used because ts doesnt work( wait maybe the decay from photon counter and the accumulation from keeping the AS cancels out???)))
     ref<Buffer> mpPhotonCounter;
     ref<Buffer> mpPhotonCounterCPU;
     uint/*2*/ mCurrentPhotonCount = mNumMaxPhotons;
@@ -110,6 +116,7 @@ private:
     
     RayTraceProgramHelper mTracePhotonPass;
     ref<ComputePass> mCollectPhotonPass;
+    ref<ComputePass> mTemporalResamplePass;
 
 
 
@@ -125,11 +132,10 @@ private:
     void PhotonMapperLight::tracePhotons(RenderContext* pRenderContext, const RenderData& renderData); // life without these two parameters
                                                                                                         // like "...hmmm, som'thin is
                                                                                                         // missin, ma boy" (i should
-                                                                                                        // implement these as lambdas a                                                                // some point)
-    // looping execution of photon tracing
 
     void PhotonMapperLight::collectPhotons(RenderContext* pRenderContext, const RenderData& renderData);
-    // looping execution of photon tracing
+    
+    void PhotonMapperLight::TemporalResampling(RenderContext* pRenderContext, const RenderData& renderData);
 
     DefineList PhotonMapperLight::getMaterialDefines();
 };

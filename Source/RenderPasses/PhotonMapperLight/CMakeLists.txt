@@ -7,6 +7,7 @@ target_sources(PhotonMapperLight PRIVATE
     TracePhotons.rt.slang
     CollectPhotons.cs.slang
     StructsAndHelpers.slang
+    TemporalResampling.cs.slang
 )
 
 target_source_group(PhotonMapperLight "RenderPasses")
