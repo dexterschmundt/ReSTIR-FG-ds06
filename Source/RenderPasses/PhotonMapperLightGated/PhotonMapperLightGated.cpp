@@ -267,8 +267,7 @@ void PhotonMapperLightGated::tracePhotons(RenderContext* pRenderContext, const R
     // mTracePhotonPass.pProgram->addDefine("PHOTON_BUFFER_SIZE", std::to_string(mNumMaxPhotons)); In CB now
     // mTracePhotonPass.pProgram->addDefine("ROUGHNESS_THRESHOLD", std::to_string(mSpecularRoughnessThreshold)); //no caustic vs global   In
     // CB now
-    mTracePhotonPass.pProgram->addDefines(getMaterialDefines()); // TODO: add if needed in shader, fkt to add is
-    // lower in restir FG lite
+    mTracePhotonPass.pProgram->addDefines(getMaterialDefines()); 
 
     // shadervariables Trace
     mTracePhotonPass.initProgramVars(mpDevice, mpScene, mpSampleGenerator);
