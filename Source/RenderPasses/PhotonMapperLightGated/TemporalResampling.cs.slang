@@ -79,8 +79,8 @@ bool combineReservoirsCaustic(inout ReservoirCaustic current, ShadingData curren
     // Check if time gating constraint is still fulfilled for old (other) reservoir
     float camDistance = length(otherSD.posW - gScene.camera.getPosition());
     float gate = gFrameCount * gFrameCountToGate;
-    if (!(abs(camDistance + other.travelDistance - gate) <= gGateTolerance*20.0f))
-        return false;
+    //if (!(abs(camDistance + other.travelDistance - gate) <= gGateTolerance*20.0f))
+        //return false;
 
     //Needed reservoir variables
     float w_0, w_1 = 0;

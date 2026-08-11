@@ -124,7 +124,7 @@ void photonResampling(ShadingData sd, BSDFProperties bsdfProperties /*, bool col
 
         // Check if time gating constraint is fulfilled
         float camDistance = rayQuery.CandidateTriangleRayT();
-        float gate = gFrameCount * gFrameCountToGate;
+        float gate = 0.5;//gFrameCount * gFrameCountToGate;
         if (!(abs(camDistance + photonData.travelDistance - gate) <= gGateTolerance))
             continue;
 
