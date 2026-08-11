@@ -84,6 +84,10 @@ private:
     float mMixedLightsAnalyticProbability = 0.5f; // i have no clue man
     float mSpecularRoughnessThreshold = 0.25f;
 
+    // Photon Gate params
+    float mGateWidth = 0.05f;
+    float mFrameToAllowedDistance = (1.0f / 60.0f) * 0.1f; //one world coordinate unit per second assuming 60 frames per second
+
     // Photon counter stuff (that wont get used because ts doesnt work( wait maybe the decay from photon counter and the accumulation from
     // keeping the AS cancels out???)))
     ref<Buffer> mpPhotonCounter;

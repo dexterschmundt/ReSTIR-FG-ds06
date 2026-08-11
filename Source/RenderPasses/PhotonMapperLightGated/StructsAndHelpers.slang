@@ -13,7 +13,7 @@ struct PhotonData {
     float3 flux;        //Incoming flux
     uint pathLenght;    //Length of the photon path
     float3 dir;         //Incoming direction
-    uint _pad2;
+    float travelDistance; //total travel distance from light source (in world coordinates i suppose), can be used for time gating
     float3 normalW;     //Face normal of the photon surface
     uint _pad3;
 
@@ -22,7 +22,7 @@ struct PhotonData {
         this.normalW = float3(0,1,0);
         this.flux = float3(0);
         this.pathLenght = 0;
-        this._pad2 = 0;
+        this.travelDistance = 0.0;
         this._pad3 = 0;
     }
 }
@@ -104,7 +104,7 @@ struct ReservoirCaustic {
     float wSum;                     // W and wSum
     uint c;                         // Confidence weight
     uint pathLength;                // Path Length
-    uint _pad;
+    float travelDistance;
 
     __init() {
         sampleSurface = {};
@@ -119,7 +119,7 @@ struct ReservoirCaustic {
         wSum = 0;
         c = 0;
         pathLength = 0;
-        _pad = 0;
+        travelDistance = 0;
     }
 
     // Photon direction helper

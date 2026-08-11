@@ -24,6 +24,8 @@ cbuffer CB
 {
     uint gFrameCount; // Frame count since scene was loaded.
     uint2 gFrameDim;  // Frame Dimensions
+    float gGateTolerance;
+    float gFrameCountToGate;
 }
 
 static const float kRoughnessThreshold = ROUGHNESS_THRESHOLD;
@@ -66,6 +68,12 @@ float3 collectPhotons(ShadingData sd, IMaterialInstance mi, float3 N, uint insta
         float NdotL = dot(photonData.dir, N);
         // Check for diffent surfaces (e.g. corners)
         if ((dot(photonData.normalW, sd.faceN) < 0.6) || (NdotL <= 0))
+            continue;
+
+        // Check if time gating constraint is fulfilled
+        float camDistance = rayQuery.CandidateTriangleRayT();
+        float gate = gFrameCount * gFrameCountToGate;
+        if (!(abs(camDistance + photonData.travelDistance - gate) <= gGateTolerance))
             continue;
 
         // Radiance for current photon
@@ -114,6 +122,13 @@ void photonResampling(ShadingData sd, BSDFProperties bsdfProperties /*, bool col
                 //continue;
         //}
 
+        // Check if time gating constraint is fulfilled
+        float camDistance = rayQuery.CandidateTriangleRayT();
+        float gate = gFrameCount * gFrameCountToGate;
+        if (!(abs(camDistance + photonData.travelDistance - gate) <= gGateTolerance))
+            continue;
+
+
         // Check for diffent surfaces (e.g. corners)
         float NdotL = dot(photonData.dir, bsdfProperties.guideNormal);
         if ((dot(photonData.normalW, sd.getOrientedFaceNormal()) < 0.6) || (NdotL <= 0))
@@ -134,6 +149,7 @@ void photonResampling(ShadingData sd, BSDFProperties bsdfProperties /*, bool col
             causticReservoir.photonDir = photonData.dir;
             causticReservoir.photonRadiance = photonData.flux;
             causticReservoir.targetFunction = targetFunction;
+            causticReservoir.travelDistance = photonData.travelDistance;
         }
     }
 

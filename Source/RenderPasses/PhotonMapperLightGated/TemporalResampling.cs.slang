@@ -20,6 +20,9 @@ cbuffer CB
     float gNormalThreshold;                 // Normal Threshold
 
     float gPhotonRadius;                   // Collection radius Global / Caustic, just that there are only global ones here
+
+    float gGateTolerance;
+    float gFrameCountToGate;
 }
 
 Texture2D<float2> gMVec;
@@ -53,7 +56,7 @@ float generalizedBalanceHeuristic(ReservoirCaustic r, ShadingData otherSD, BSDFP
         return 0;
 }
 
-/*  Resampling with 2 reservoirs. Finalizes the reservoir afterwards.
+/*  Resampling with 2 reservoirs. Copies other into current if chosen, leaves curretn as is otherwise. Finalizes the reservoir afterwards.
     \param[in/out] Current reservoir for the pixel. Is the finalized reservoir at the end of the function
     \param[in] Shading data for current reservoir
     \param[in] BSDF Properties for current reservoir
@@ -71,6 +74,12 @@ bool combineReservoirsCaustic(inout ReservoirCaustic current, ShadingData curren
     bool pathThreshold = (other.pathLength != current.pathLength);
     bool surfacesPosThreshold = length(currentSD.posW - otherSD.posW) >= (2 * getPhotonRadius(current));
     if (normalThreshold || pathThreshold || surfacesPosThreshold)
+        return false;
+
+    // Check if time gating constraint is still fulfilled for old (other) reservoir
+    float camDistance = length(otherSD.posW - gScene.camera.getPosition());
+    float gate = gFrameCount * gFrameCountToGate;
+    if (!(abs(camDistance + other.travelDistance - gate) <= gGateTolerance*20.0f))
         return false;
 
     //Needed reservoir variables

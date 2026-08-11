@@ -67,7 +67,7 @@ void main(uint2 pixel: SV_DispatchThreadID)
     float3 viewDir = gScene.camera.computeRayPinhole(pixel, gFrameDim).dir;
 
     float3 outColor = float3(0);
-    if(hitInfo.isValid()){
+    if(hitInfo.isValid()){ //sorry but i wont care when its not valid 
         SampleGenerator sg = SampleGenerator(pixel, gFrameCount * 5 + 4);
         let lod = ExplicitLodTextureSampler(0.f);
 

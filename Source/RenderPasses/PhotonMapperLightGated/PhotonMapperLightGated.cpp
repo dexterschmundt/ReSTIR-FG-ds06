@@ -171,7 +171,7 @@ void PhotonMapperLightGated::prepareResources(RenderContext* pRenderContext, con
         );
         mpPhotonAABB->setName("PhotonAABB");
         mpPhotonData = Buffer::createStructured( // contains photon data corresponding to AABB at same index
-            mpDevice, sizeof(float) * 12 /*TODO: anpassen auf sowas wie sizeof(photonStruct) wenn ich das mal endlich finde*/,
+            mpDevice, sizeof(float) * 12 /*travel distance replaces one of the pads, so it didnt get bigger*/,
             mNumMaxPhotons, ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess, Buffer::CpuAccess::None, nullptr, false
         );
         mpPhotonData->setName("PhotonData");
@@ -231,7 +231,7 @@ void PhotonMapperLightGated::tracePhotons(RenderContext* pRenderContext, const R
         RtProgram::Desc desc;
         desc.addShaderModules(mpScene->getShaderModules());
         desc.addShaderLibrary(kShaderTracePhotons);
-        desc.setMaxPayloadSize(sizeof(float) * 4 /*change to actual payload size (ka wie groß ich die mache*/);
+        desc.setMaxPayloadSize(sizeof(float) * 5 /*change to actual payload size (ka wie groß ich die mache*/);
         desc.setMaxAttributeSize(mpScene->getRaytracingMaxAttributeSize());
         desc.setMaxTraceRecursionDepth(1); // no indirections here, even with indirictions you would just program the raygen shader well
         if (!mpScene->hasProceduralGeometry())
@@ -280,8 +280,7 @@ void PhotonMapperLightGated::tracePhotons(RenderContext* pRenderContext, const R
     var["CB"]["gPhotonRadius"] = mPhotonRadius;
     var["CB"]["gMaxBounces"] = mPhotonMaxBounces;               // no bounces
     var["CB"]["gGlobalRejectionProb"] = mGlobalPhotonRejection; // i wont bother with this honestly
-    var["CB"]["gDispatchDimension"] = mShaderDispatchDim; // fill buffer up every time, we will see how that works (shoulndt be that bad
-                                                          // since raytraced visibility should be much more expensive
+    var["CB"]["gDispatchDimension"] = mShaderDispatchDim; // fill buffer up every time, we will see how that works (shoulndt be that bad since raytraced visibility should be much more expensive)
     var["CB"]["kUseEmissive"] = mpScene->useEmissiveLights();
     var["CB"]["kUseAnalytic"] = mpScene->useAnalyticLights();
     var["CB"]["gMixedLightsAnalyticProbability"] = mMixedLightsAnalyticProbability;
@@ -362,6 +361,8 @@ void PhotonMapperLightGated::collectPhotons(RenderContext* pRenderContext, const
     // Constant Buffer
     var["CB"]["gFrameCount"] = mFrameCount;
     var["CB"]["gFrameDim"] = renderData.getDefaultTextureDims();
+    var["CB"]["gGateTolerance"] = mGateWidth;
+    var["CB"]["gFrameCountToGate"] = mFrameToAllowedDistance;
 
     // Input Resources
     var["gVBuffer"] = renderData[kInputVBuffer]->asTexture(); // this seems to be how input textures get accessed
@@ -426,6 +427,8 @@ void PhotonMapperLightGated::TemporalResampling(RenderContext* pRenderContext, c
     // var["CB"]["gDisocclusionBoostSpatialSamples"] = mResampleSettings.disocclusionBoostExtraSamples;
     var["CB"]["gNormalThreshold"] = mNormalThreshold;
     var["CB"]["gPhotonRadius"] = mPhotonRadius;
+    var["CB"]["gGateTolerance"] = mGateWidth;
+    var["CB"]["gFrameCountToGate"] = mFrameToAllowedDistance;
 
     // Input Resources
     var["gMVec"] = renderData[kInputMotionVectors]->asTexture();

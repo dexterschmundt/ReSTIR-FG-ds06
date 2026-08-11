@@ -35,12 +35,13 @@ static const bool kRussianRoulette = true;
 struct RayPayload //payload is the single output of hit/miss shaders, so it is necessary
 {
     PackedHitInfo packedHitInfo; // Hit Info suffices, after single hit raygen extracts flux and allat
-
+    float travelDistance;
     /** Create ray payload with default parameters.
      */
     __init()
     {
         this.packedHitInfo = {};
+        this.travelDistance = 0.0;
     }
 }
 
@@ -53,6 +54,7 @@ void miss(inout RayPayload rayData: SV_RayPayload)
 {
     HitInfo hitInfo = {};
     rayData.packedHitInfo = hitInfo.getData(); // Invalid hit
+    rayData.travelDistance = -1.0;
 }
 
 //no anyhit since i dont care about that
@@ -66,6 +68,7 @@ void closestHit(inout RayPayload rayData: SV_RayPayload, BuiltInTriangleIntersec
     triangleHit.barycentrics = attribs.barycentrics;
 
     rayData.packedHitInfo = HitInfo(triangleHit).getData();
+    rayData.travelDistance = RayTCurrent(); //photon needs to add itself, no adding trough rayPayload
 }
 
 
@@ -102,6 +105,7 @@ void rayGen()
     photon.flux = pls.flux;
     photon.dir = -ray.Direction;
     photon.normalW = pls.normal;
+    photon.travelDistance = 0.0; //gets initialized like that anyway, but with this i am aware of it
 
     const float invRejection = 1.f / gGlobalRejectionProb;
 
@@ -110,6 +114,7 @@ void rayGen()
         TraceRay(gScene.rtAccel, 0 /*Flags*/, 0xff /* instanceInclusionMask */, 0 /* hitIdx */, rayTypeCount, 0 /* missIdx */, ray, rayPayload);
 
         HitInfo hit = HitInfo(rayPayload.packedHitInfo);
+        float currTravelDistance = rayPayload.travelDistance; //is the travel distance only for current ray
         // Stop if photon leaves the scene
         if (!hit.isValid())
             return;
@@ -120,6 +125,9 @@ void rayGen()
         ShadingData sd = loadShadingData(hit, ray.Direction, lod);
         let mi = gScene.materials.getMaterialInstance(sd, lod, hints);
         let bsdfProperties = mi.getProperties(sd);
+
+        // Add travel distance of current ray so its correct if Photon is stored
+        photon.travelDistance += currTravelDistance;
 
         // Store Photon if a diffuse surface was hit
         photon.normalW = sd.getOrientedFaceNormal();
