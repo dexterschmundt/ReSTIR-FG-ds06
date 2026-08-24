@@ -289,7 +289,7 @@ target_sources(Falcor PRIVATE
 	Rendering/PhotonGuiding/Reduce.cs.slang
 	Rendering/PhotonGuiding/UpdateGuidingMaps.cs.slang
 	Rendering/PhotonGuiding/UpdateHistograms.cs.slang
-
+	
     Rendering/RTXDI/EnvLightUpdater.cs.slang
     Rendering/RTXDI/LightUpdater.cs.slang
     Rendering/RTXDI/PackedTypes.slang
@@ -338,6 +338,7 @@ target_sources(Falcor PRIVATE
     Scene/Raster.slang
     Scene/Raytracing.slang
     Scene/RaytracingInline.slang
+	Scene/RaytracingInstanceMaskHelper.slang
     Scene/Scene.cpp
     Scene/Scene.h
     Scene/Scene.slang
@@ -468,6 +469,8 @@ target_sources(Falcor PRIVATE
     Scene/Material/PBRT/PBRTCoatedDiffuseMaterial.h
     Scene/Material/PBRT/PBRTCoatedDiffuseMaterial.cpp
 
+	Scene/Particles/UpdateParticles.cs.slang
+	
     Scene/SDFs/NormalizedDenseSDFGrid/NDSDFGrid.cpp
     Scene/SDFs/NormalizedDenseSDFGrid/NDSDFGrid.h
     Scene/SDFs/NormalizedDenseSDFGrid/NDSDFGrid.slang
