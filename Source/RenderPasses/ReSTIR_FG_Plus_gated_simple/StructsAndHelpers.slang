@@ -45,6 +45,12 @@ struct PhotonData {
     float3 faceN;                         // World face normal of the hit surface
     float invPhotonScaleFactor;          // Light selection probability and number of light paths used to generate the photon
 
+
+    float travelDistance                //total travel distance from light source, used for gating
+    uint _pad1                  //there has to be a better way
+    uint _pad2                  //there has to be a better way
+    uint _pad_3                 //there has to be a better way
+
     __init() {
         this.dir = float3(0);
         this.faceN = float3(0, 1, 0);
@@ -52,6 +58,8 @@ struct PhotonData {
         this.packedSGStartPixelAndPathLength = 0;
         this.sgSeed = 0;
         this.invPhotonScaleFactor = 1;
+
+        this.travelDistance = 0;
     }
 
     //Helper to get path length
@@ -235,7 +243,13 @@ struct PathReservoir {
     float invPhotonScaleFactor; // Light selection probability and number of light paths used to generate the photon
 
     uint2 packedPhotonRetraceData;   // Packed sample generator and path length for photon retrace (uint2(PackedPixel,Seed); see PhotonData)
-    uint2 packedGuidingData;   // Packed data needed for guiding. Unused if guiding is disabled 
+    uint2 packedGuidingData;   // Packed data needed for guiding. Unused if guiding is disabled
+
+    //from here on not included in struct size
+    float travelDistance                //total travel distance from light source, used for gating
+    uint _pad1                  //there has to be a better way
+    uint _pad2                  //there has to be a better way
+    uint _pad_3                 //there has to be a better way
 
     __init() {
         sgPathDirections = SampleGenerator(uint2(0), 0);
@@ -250,6 +264,8 @@ struct PathReservoir {
         invPhotonScaleFactor = 1;
         packedPhotonRetraceData = uint2(0);
         packedGuidingData = uint2(0);
+
+        travelDistance = 0;
     }
 
     //Packed properties helpers
@@ -300,6 +316,12 @@ struct CausticReservoir {
     uint2 packedPhotonRetraceData;      // Packed sample generator and path length for photon retrace (uint2(PackedPixel,Seed); see PhotonData)
     float invPhotonScaleFactor;         // Light selection probability and number of light paths used to generate the photon
 
+    //from here on not included in struct size
+    float travelDistance                //total travel distance from light source, used for gating
+    uint _pad1                  //there has to be a better way
+    uint _pad2                  //there has to be a better way
+    uint _pad_3                 //there has to be a better way
+
     __init() {
         sampleSurface = {};
         sampleSurfaceView = float3(0);
@@ -310,6 +332,8 @@ struct CausticReservoir {
         subPixelJacobian = 0;
         targetFunction = 0;
         invPhotonScaleFactor = 1;
+
+        travelDistance = 0;
     }
 
     // Valid check
@@ -402,7 +426,7 @@ ShadingData loadShadingData(const HitInfo hit, const float3 rayDir, const ITextu
     VertexData v = gScene.getVertexData(triangleHit);
     uint materialID = gScene.getMaterialID(triangleHit.instanceID);
     ShadingData sd = gScene.materials.prepareShadingData(v, materialID, rayDir, lod);
-    
+
     return sd;
 }
 

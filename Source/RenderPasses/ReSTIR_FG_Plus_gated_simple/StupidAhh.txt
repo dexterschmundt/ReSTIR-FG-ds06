@@ -1,0 +1,4 @@
+------------Differences to ReSTIR FG Plus----------------
+
+StructsAndHelpers.slang:
+Photons, Path reservoirs and caustic reservoirs have a (very poorly packed) travel distance attribute so they can be rejected based on it
