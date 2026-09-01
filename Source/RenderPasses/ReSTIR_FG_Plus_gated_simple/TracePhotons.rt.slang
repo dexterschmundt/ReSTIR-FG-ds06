@@ -54,6 +54,7 @@ static const bool kDiffClassUseLobes = DIFF_CLASS_USE_LOBES;
 struct RayPayload
 {
     PackedHitInfo packedHitInfo; //< Hit Info
+    float rayT; //travel distance of hit
 
     __init()
     {
@@ -310,6 +311,7 @@ void rayGen()
     photon.sgStartPixel = pixel;
     photon.sgSeed = gFrameCount * kRNGNumPasses;
     photon.invPhotonScaleFactor = invPhotonScaleFactor;
+    //photon.travelDistance = 0;
 
     uint maxPathLength = gPackedPathLength.pathLength; 
     #if IS_SHIFT
@@ -338,6 +340,9 @@ void rayGen()
         ShadingData sd = loadShadingData(hit, -ray.Direction, lod);
         let mi = gScene.materials.getMaterialInstance(sd, lod, hints);
         let bsdfProperties = mi.getProperties(sd);
+
+        // Update Photon Travel Distance
+        photon.travelDistance += length(sd.posW - ray.Origin);
 
         // Store Photon
         photon.faceN = sd.getOrientedFaceNormal();
@@ -395,6 +400,7 @@ void rayGen()
                     shiftIsValid = true; // Photon is potentially rejected in path shift
                     pathReservoir.samplePosW = sd.posW;
                     pathReservoir.sampleRadius = getPhotonRadius((uint)photonType, sd.posW);
+                    pathReservoir.travelDistance = photon.travelDistance;
                 }
                 // Check if photon type differs
                 shiftIsValid &= pathReservoir.flags.isCaustic == storeAsCaustic;
@@ -414,6 +420,7 @@ void rayGen()
                         causticReservoir.sampleSurface = hit.getData();
                         causticReservoir.sampleSurfaceView = photon.dir;
                         causticReservoir.photonRadiance = photon.flux;
+                        causticReservoir.travelDistanceTotal = photon.TravelDistance + length(gScene.camera.getPosition() - sd.posW);
                         shiftIsValid = true;
                     }
                 }

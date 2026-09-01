@@ -45,11 +45,10 @@ struct PhotonData {
     float3 faceN;                         // World face normal of the hit surface
     float invPhotonScaleFactor;          // Light selection probability and number of light paths used to generate the photon
 
-
-    float travelDistance                //total travel distance from light source, used for gating
-    uint _pad1                  //there has to be a better way
-    uint _pad2                  //there has to be a better way
-    uint _pad_3                 //there has to be a better way
+    float travelDistance;       // total travel distance from light source, used for gating
+    uint _pad1;                 // there has to be a better way
+    uint _pad2;                 // there has to be a better way
+    uint _pad3;                 //there has to be a better way
 
     __init() {
         this.dir = float3(0);
@@ -245,11 +244,11 @@ struct PathReservoir {
     uint2 packedPhotonRetraceData;   // Packed sample generator and path length for photon retrace (uint2(PackedPixel,Seed); see PhotonData)
     uint2 packedGuidingData;   // Packed data needed for guiding. Unused if guiding is disabled
 
-    //from here on not included in struct size
-    float travelDistance                //total travel distance from light source, used for gating
-    uint _pad1                  //there has to be a better way
-    uint _pad2                  //there has to be a better way
-    uint _pad_3                 //there has to be a better way
+    // from here on not included in struct size
+    float travelDistance;       // total travel distance from light source, used for gating
+    uint _pad1;                 // there has to be a better way
+    uint _pad2;                 // there has to be a better way
+    uint _pad3;                 //there has to be a better way
 
     __init() {
         sgPathDirections = SampleGenerator(uint2(0), 0);
@@ -316,11 +315,11 @@ struct CausticReservoir {
     uint2 packedPhotonRetraceData;      // Packed sample generator and path length for photon retrace (uint2(PackedPixel,Seed); see PhotonData)
     float invPhotonScaleFactor;         // Light selection probability and number of light paths used to generate the photon
 
-    //from here on not included in struct size
-    float travelDistance                //total travel distance from light source, used for gating
-    uint _pad1                  //there has to be a better way
-    uint _pad2                  //there has to be a better way
-    uint _pad_3                 //there has to be a better way
+    // from here on not included in struct size
+    float travelDistanceTotal;       // total travel distance from light source and in case of backprojection also to camera, used for gating
+    uint _pad1;                 // there has to be a better way
+    uint _pad2;                 // there has to be a better way
+    uint _pad3;                 //there has to be a better way
 
     __init() {
         sampleSurface = {};

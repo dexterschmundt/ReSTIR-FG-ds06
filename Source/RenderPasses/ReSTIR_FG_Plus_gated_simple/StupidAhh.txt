@@ -2,3 +2,9 @@
 
 StructsAndHelpers.slang:
 Photons, Path reservoirs and caustic reservoirs have a (very poorly packed) travel distance attribute so they can be rejected based on it
+
+
+
+--------------TODO---------------------------------------
+-adjust sizes of reservoir and photon buffers based on how i changed the sizes for each struct on GPU-side
+-In caustic reservoir wird die distanz zur kamera bereits auf die Photondistanz gerechnet wegen backprojection. Schauen ob das legit is (falls dieses Reservoir auch für gespiegelte caustiken verwendet wird)
