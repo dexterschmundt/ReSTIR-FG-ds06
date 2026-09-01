@@ -316,8 +316,8 @@ struct CausticReservoir {
     float invPhotonScaleFactor;         // Light selection probability and number of light paths used to generate the photon
 
     // from here on not included in struct size
-    float travelDistanceTotal;       // total travel distance from light source and in case of backprojection also to camera, used for gating
-    uint _pad1;                 // there has to be a better way
+    float travelDistancePhoton;       // total travel distance from light source to photon stored, used for gating. Doesnt account for 
+    float distanceToCamera;           // Distance to camera to correctly gate backprojection. May be optimized at some point (hopefully it will because this is terrible)
     uint _pad2;                 // there has to be a better way
     uint _pad3;                 //there has to be a better way
 
@@ -332,7 +332,8 @@ struct CausticReservoir {
         targetFunction = 0;
         invPhotonScaleFactor = 1;
 
-        travelDistance = 0;
+        travelDistancePhoton = 0;
+        travelDistancePhoton = 0;
     }
 
     // Valid check
@@ -515,4 +516,11 @@ bool causticPhotonBackprojection(ShadingData sd, uint2 screenDims, int bufferInd
     InterlockedExchange(headCounter[currentPixel], bufferIndex, /*out*/ nodeNext);
     linkedList[bufferIndex] = nodeNext;
     return true;
+
+    /*Head counter saves start for the list of photons for every pixel, where the linked list buffer stores every following item.
+    The list gets added to from behind (new.next = head; head=new). The value stored is simultaneously the index in the caustic photon buffer at which
+    the successfully backprojected pixel is stored, and is also the index inside the linked list buffer at which the next value is stored
+    (Node.Value and Node.next are the same that way). That one again gives the slot for
+    a backprojected photon for the pixel and the next slot in the buffer for elements of linked lists. This works because every caustioc photon has its own index in the
+    caustic bufffer, so the corresponding slot inside the linked List buffer is empty too. List ends if next slot in Linked List buffer has no entry*/
 }

@@ -420,7 +420,10 @@ void rayGen()
                         causticReservoir.sampleSurface = hit.getData();
                         causticReservoir.sampleSurfaceView = photon.dir;
                         causticReservoir.photonRadiance = photon.flux;
-                        causticReservoir.travelDistanceTotal = photon.TravelDistance + length(gScene.camera.getPosition() - sd.posW);
+
+                        causticReservoir.travelDistanceTotal = photon.TravelDistance;
+                        causticReservoir.distanceToCamera = length(gScene.camera.getPosition() - sd.posW);
+
                         shiftIsValid = true;
                     }
                 }
