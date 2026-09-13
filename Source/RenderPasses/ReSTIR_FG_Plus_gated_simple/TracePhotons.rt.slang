@@ -54,7 +54,7 @@ static const bool kDiffClassUseLobes = DIFF_CLASS_USE_LOBES;
 struct RayPayload
 {
     PackedHitInfo packedHitInfo; //< Hit Info
-    float rayT; //travel distance of hit
+    //float rayT; //travel distance of hit not needed since travel distance for single rays is trivial, and ray T depends on scaling of dir anyway
 
     __init()
     {
