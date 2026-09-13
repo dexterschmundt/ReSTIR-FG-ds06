@@ -58,7 +58,11 @@ struct PhotonData {
         this.sgSeed = 0;
         this.invPhotonScaleFactor = 1;
 
-        this.travelDistance = 0;
+        this.travelDistance = 0.0;
+
+        _pad1 = 0;
+        _pad2 = 0;
+        _pad3 = 0;
     }
 
     //Helper to get path length
@@ -264,7 +268,11 @@ struct PathReservoir {
         packedPhotonRetraceData = uint2(0);
         packedGuidingData = uint2(0);
 
-        travelDistance = 0;
+        travelDistance = 0.0;
+
+        _pad1 = 0;
+        _pad2 = 0;
+        _pad3 = 0;
     }
 
     //Packed properties helpers
@@ -332,8 +340,11 @@ struct CausticReservoir {
         targetFunction = 0;
         invPhotonScaleFactor = 1;
 
-        travelDistancePhoton = 0;
-        travelDistancePhoton = 0;
+        travelDistancePhoton = 0.0;
+        distanceToCamera = 0.0;
+
+        _pad2 = 0;
+        _pad3 = 0;
     }
 
     // Valid check

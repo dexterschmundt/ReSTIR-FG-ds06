@@ -515,18 +515,19 @@ void ReSTIR_FG_Plus_gated_simple::prepareResources(RenderContext* pRenderContext
     for (uint i = 0; i < 2; i++)
     {
         uint photonBufferSize = i == 0 ? mOptions.photonBufferSizeGlobal : mOptions.photonBufferSizeCaustic;
-        if (!mpPhotonAABB[i])
+        if (!mpPhotonAABB[i]) 
         {
-            mpPhotonAABB[i] = Buffer::createStructured(
+            mpPhotonAABB[i] = Buffer::createStructured( // no special struct in "structsAndHalpers.slang"
                 mpDevice, sizeof(AABB), photonBufferSize, ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess,
                 Buffer::CpuAccess::None, nullptr, false
             );
             mpPhotonAABB[i]->setName("PhotonAABB" + std::to_string(i));
         }
-        if (!mpPhotonData[i])
+        if (!mpPhotonData[i]) 
         {
-            mpPhotonData[i] = Buffer::createStructured(
-                mpDevice, sizeof(float) * 12, photonBufferSize, ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess,
+            mpPhotonData[i] = Buffer::createStructured( // structsAndHalpers.slang: PhotonData
+                mpDevice, sizeof(float) * 16 /*12*/, photonBufferSize,
+                ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess, // size of photon data changed from 12 to 16
                 Buffer::CpuAccess::None, nullptr, false
             );
             mpPhotonData[i]->setName("PhotonData" + std::to_string(i));
@@ -534,7 +535,7 @@ void ReSTIR_FG_Plus_gated_simple::prepareResources(RenderContext* pRenderContext
 
         if (!mpPhotonGuidingData[i] && mOptions.usePhotonGuiding)
         {
-            mpPhotonGuidingData[i] = Buffer::createStructured(
+            mpPhotonGuidingData[i] = Buffer::createStructured( // structsAndHalpers.slang: PhotonGuidingData
                 mpDevice, sizeof(uint) * 2, photonBufferSize, ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess,
                 Buffer::CpuAccess::None, nullptr, false
             );
@@ -544,15 +545,16 @@ void ReSTIR_FG_Plus_gated_simple::prepareResources(RenderContext* pRenderContext
         if (!mpCausticReservoir[i] || mResetScreenTex)
         {
             mCanResample = false;
-            mpCausticReservoir[i] = Buffer::createStructured(
-                mpDevice, 64u, mScreenRes.x * mScreenRes.y, ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess,
+            mpCausticReservoir[i] = Buffer::createStructured( // structsAndHalpers.slang: CausticReservoir
+                mpDevice, 64u + sizeof(float) * 4, mScreenRes.x * mScreenRes.y,
+                ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess,
                 Buffer::CpuAccess::None, nullptr, false
             );
             mpCausticReservoir[i]->setName("CausticReservoir" + std::to_string(i));
         }
         if ((!mpPhotonGuidingCausticReservoir[i] || mResetScreenTex) && mOptions.usePhotonGuiding)
         {
-            mpPhotonGuidingCausticReservoir[i] = Texture::create2D(
+            mpPhotonGuidingCausticReservoir[i] = Texture::create2D( // structsAndHalpers.slang: probably PhotonGuidingData since its 2 uints
                 mpDevice, mScreenRes.x, mScreenRes.y, ResourceFormat::RG32Uint, 1u, 1u, nullptr,
                 ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource
             );
@@ -562,8 +564,9 @@ void ReSTIR_FG_Plus_gated_simple::prepareResources(RenderContext* pRenderContext
         if (!mpPathReservoir[i] || mResetScreenTex)
         {
             mCanResample = false;
-            mpPathReservoir[i] = Buffer::createStructured(
-                mpDevice, 112u, mScreenRes.x * mScreenRes.y, ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess,
+            mpPathReservoir[i] = Buffer::createStructured( // structsAndHalpers.slang: probably PathReservoir, yet 16 byte from here are unaccounted for
+                mpDevice, 112u + sizeof(float) * 4, mScreenRes.x * mScreenRes.y,
+                ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess,
                 Buffer::CpuAccess::None, nullptr, false
             );
             mpPathReservoir[i]->setName("PathReservoir_" + std::to_string(i));
