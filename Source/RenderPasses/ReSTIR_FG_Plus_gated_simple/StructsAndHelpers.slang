@@ -411,6 +411,36 @@ struct PackedPathLength
     }
 }
 
+// Helper struct for Gates so i dont have to do all of this
+struct Gate
+{
+    float value;
+    float tol;
+
+    __init(float value, float tol) {
+        this.value = value;
+        this.tol = tol;
+    }
+
+    property float lowerBound {
+        get { return value - tol >= 0.0 ? value - tol : 0.0; }
+    }
+
+    property float upperBound {
+        get { return value + tol; }
+    }
+
+    // totalPathDistance = LightPathDistance + CamPathDistance
+    // paths with negative lentgh will be rejected
+    // upperBound must result into something positive 
+    bool pass(float totalPathDistance) {
+        return (this.lowerBound <= totalPathDistance) && (totalPathDistance <= this.upperBound);
+    }
+}
+
+
+
+
 /** Creates a sample generator from packed photon sg data (see PhotonData struct)
   * \param[in] Packed photon retrace data
   * \return the sample generator that was used to create this photon path
@@ -535,3 +565,5 @@ bool causticPhotonBackprojection(ShadingData sd, uint2 screenDims, int bufferInd
     a backprojected photon for the pixel and the next slot in the buffer for elements of linked lists. This works because every caustioc photon has its own index in the
     caustic bufffer, so the corresponding slot inside the linked List buffer is empty too. List ends if next slot in Linked List buffer has no entry*/
 }
+
+

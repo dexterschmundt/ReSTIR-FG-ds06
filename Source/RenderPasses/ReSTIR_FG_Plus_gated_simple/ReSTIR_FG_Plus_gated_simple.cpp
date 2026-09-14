@@ -670,6 +670,11 @@ void ReSTIR_FG_Plus_gated_simple::prepareResources(RenderContext* pRenderContext
     mResetScreenTex = false;
 }
 
+// passes are defined in same order as they are executed
+
+// executes TracePhotons.rt.slang with IS_SHIFT = false
+// Traces Photons from light source and stores them in caustic and World Phpotpn Buffers. Additionally stores pointers to directly Visible Caustic Photons in Backproject linked list
+// Stored Photons carry their total travel Distance for gating
 void ReSTIR_FG_Plus_gated_simple::tracePhotonsPass(RenderContext* pRenderContext, const RenderData& renderData)
 {
     FALCOR_PROFILE(pRenderContext, "TracePhotons");
@@ -817,6 +822,72 @@ void ReSTIR_FG_Plus_gated_simple::tracePhotonsPass(RenderContext* pRenderContext
     mpPhotonAS->update(pRenderContext, photonBuildSize);
 }
 
+// executes BackprojectCaustics.cs.slang with BACKPROJECT_TMP_RESERVOIRS = false
+// Fills gCausticReservoir by adding Photons from linked list for pixel to Caustic reservoir of pixel, clears linked list after that
+// doesnt add Photons that dont pass gate
+void ReSTIR_FG_Plus_gated_simple::backprojectCausticsPass(RenderContext* pRenderContext, const RenderData& renderData)
+{
+    FALCOR_PROFILE(pRenderContext, "BackprojectCaustics");
+
+    auto getRuntimeDefines = [&]()
+    {
+        DefineList defines = {};
+        defines.add(getMaterialDefines());
+        defines.add("RNG_NUM_PASSES", std::to_string(mRNGNumPasses));
+        defines.add("USE_PHOTON_GUIDING", mOptions.usePhotonGuiding ? "1" : "0");
+        return defines;
+    };
+
+    // Initialize Compute Pass
+    if (!mpBackprojectCausticSamplesPass)
+    {
+        Program::Desc desc;
+        desc.addShaderModules(mpScene->getShaderModules());
+        desc.addShaderLibrary(kShaderBackprojectCaustics).csEntry("main").setShaderModel(kShaderModel);
+        desc.addTypeConformances(mpScene->getTypeConformances());
+
+        DefineList defines;
+        defines.add(mpScene->getSceneDefines());
+        defines.add(mpSampleGenerator->getDefines());
+        defines.add(getRuntimeDefines());
+
+        mpBackprojectCausticSamplesPass = ComputePass::create(mpDevice, desc, defines, true);
+    }
+    FALCOR_ASSERT(mpBackprojectCausticSamplesPass);
+    // Runtime defines
+    mpBackprojectCausticSamplesPass->getProgram()->addDefines(getRuntimeDefines());
+
+    // Set vars
+    auto var = mpBackprojectCausticSamplesPass->getRootVar();
+    mpScene->setRaytracingShaderData(pRenderContext, var); // Set scene data
+    mpSampleGenerator->setShaderData(var);                 // Sample generator
+
+    var["CB"]["gFrameCount"] = mFrameCount;
+    var["CB"]["gScreenDims"] = mScreenRes;
+
+    var["GateCB"]["gateValue"] = mOptions.gateValue;
+    var["GateCB"]["gateTol"] = mOptions.gateTolerance;
+
+    var["gLightTraceHeadCounter"] = mpLightTraceHeadCounter;
+    var["gLightTraceLinkedList"] = mpLightTraceLinkedList;
+    var["gPhotonData"] = mpPhotonData[1]; // Caustic photon data
+    var["gPhotonHitInfo"] = mpPhotonHitInfo;
+    if (mOptions.usePhotonGuiding)
+    {
+        var["gPhotonGuidingData"] = mpPhotonGuidingData[1];
+        var["gCausticReservoirGuidingData"] = mpPhotonGuidingCausticReservoir[mFrameCount % 2];
+    }
+
+    var["gCausticReservoir"] = mpCausticReservoir[mFrameCount % 2];
+
+    // Execute
+    mpBackprojectCausticSamplesPass->execute(pRenderContext, uint3(mScreenRes, 1));
+
+    pRenderContext->uavBarrier(mpLightTraceHeadCounter.get());
+}
+
+// executes TraceCamera.rt.slang with IS_SHIFT = false
+// TODO: make Environment Maps be gated too (in whatever way that makes sense, probably just ignoring them since infinite distance)
 void ReSTIR_FG_Plus_gated_simple::traceCameraPass(RenderContext* pRenderContext, const RenderData& renderData)
 {
     FALCOR_PROFILE(pRenderContext, "InitialSamples");
@@ -880,6 +951,9 @@ void ReSTIR_FG_Plus_gated_simple::traceCameraPass(RenderContext* pRenderContext,
     var["CB"]["gJacobianDistanceThreshold"] = mOptions.jacobianDistanceThreshold;
     var["CB"]["gNeeSelectProbabilites"] = mNeeLightSelectProb;
 
+    var["GateCB"]["gateValue"] = mOptions.gateValue;
+    var["GateCB"]["gateTol"] = mOptions.gateTolerance;
+
     // RTXDI Resources
     mpRTXDI->setShaderData(var);
     // NEE Structures for Path Resampling
@@ -907,303 +981,7 @@ void ReSTIR_FG_Plus_gated_simple::traceCameraPass(RenderContext* pRenderContext,
     mpScene->raytrace(pRenderContext, mTraceCameraPass.pProgram.get(), mTraceCameraPass.pVars, uint3(mScreenRes, 1));
 }
 
-void ReSTIR_FG_Plus_gated_simple::backprojectCausticsPass(RenderContext* pRenderContext, const RenderData& renderData)
-{
-    FALCOR_PROFILE(pRenderContext, "BackprojectCaustics");
-
-    auto getRuntimeDefines = [&]()
-    {
-        DefineList defines = {};
-        defines.add(getMaterialDefines());
-        defines.add("RNG_NUM_PASSES", std::to_string(mRNGNumPasses));
-        defines.add("USE_PHOTON_GUIDING", mOptions.usePhotonGuiding ? "1" : "0");
-        return defines;
-    };
-
-    // Initialize Compute Pass
-    if (!mpBackprojectCausticSamplesPass)
-    {
-        Program::Desc desc;
-        desc.addShaderModules(mpScene->getShaderModules());
-        desc.addShaderLibrary(kShaderBackprojectCaustics).csEntry("main").setShaderModel(kShaderModel);
-        desc.addTypeConformances(mpScene->getTypeConformances());
-
-        DefineList defines;
-        defines.add(mpScene->getSceneDefines());
-        defines.add(mpSampleGenerator->getDefines());
-        defines.add(getRuntimeDefines());
-
-        mpBackprojectCausticSamplesPass = ComputePass::create(mpDevice, desc, defines, true);
-    }
-    FALCOR_ASSERT(mpBackprojectCausticSamplesPass);
-    // Runtime defines
-    mpBackprojectCausticSamplesPass->getProgram()->addDefines(getRuntimeDefines());
-
-    // Set vars
-    auto var = mpBackprojectCausticSamplesPass->getRootVar();
-    mpScene->setRaytracingShaderData(pRenderContext, var); // Set scene data
-    mpSampleGenerator->setShaderData(var);                 // Sample generator
-
-    var["CB"]["gFrameCount"] = mFrameCount;
-    var["CB"]["gScreenDims"] = mScreenRes;
-
-    var["gLightTraceHeadCounter"] = mpLightTraceHeadCounter;
-    var["gLightTraceLinkedList"] = mpLightTraceLinkedList;
-    var["gPhotonData"] = mpPhotonData[1]; // Caustic photon data
-    var["gPhotonHitInfo"] = mpPhotonHitInfo;
-    if (mOptions.usePhotonGuiding)
-    {
-        var["gPhotonGuidingData"] = mpPhotonGuidingData[1];
-        var["gCausticReservoirGuidingData"] = mpPhotonGuidingCausticReservoir[mFrameCount % 2];
-    }
-
-    var["gCausticReservoir"] = mpCausticReservoir[mFrameCount % 2];
-
-    // Execute
-    mpBackprojectCausticSamplesPass->execute(pRenderContext, uint3(mScreenRes, 1));
-
-    pRenderContext->uavBarrier(mpLightTraceHeadCounter.get());
-}
-
-void ReSTIR_FG_Plus_gated_simple::shiftPhotonPathPass(RenderContext* pRenderContext, const RenderData& renderData)
-{
-    FALCOR_PROFILE(pRenderContext, "ShiftPhotonPath");
-
-    auto getRuntimeDefines = [&]()
-    {
-        DefineList defines = {};
-        defines.add("PHOTON_BUFFER_SIZE_GLOBAL", std::to_string(mOptions.photonBufferSizeGlobal));
-        defines.add("PHOTON_BUFFER_SIZE_CAUSTIC", std::to_string(mOptions.photonBufferSizeCaustic));
-        defines.add("RNG_NUM_PASSES", std::to_string(mRNGNumPasses));
-        defines.add("USE_EMISSIVE_LIGHTS", mpScene->useEmissiveLights() ? "1" : "0");
-        defines.add("USE_ANALYTIC_LIGHTS", mpScene->useAnalyticLights() ? "1" : "0");
-        defines.add("USE_ADAPTIVE_PHOTON_RADIUS", mOptions.photonUseAdaptiveRadius ? "1" : "0");
-        defines.add(getMaterialDefines());
-        defines.add("USE_PHOTON_GUIDING", mOptions.usePhotonGuiding ? "1" : "0");
-        if (mOptions.usePhotonGuiding)
-            defines.add(mpPhotonGuiding->getDefines());
-
-        return defines;
-    };
-
-    // Init Shader
-    if (!mShiftPhotonPathPass.pProgram)
-    {
-        RtProgram::Desc desc;
-        desc.addShaderModules(mpScene->getShaderModules());
-        desc.addShaderLibrary(kShaderTracePhotons);
-        desc.setMaxPayloadSize(sizeof(float) * 4);
-        desc.setMaxAttributeSize(mpScene->getRaytracingMaxAttributeSize());
-        desc.setMaxTraceRecursionDepth(1);
-        if (!mpScene->hasProceduralGeometry())
-            desc.setPipelineFlags(RtPipelineFlags::SkipProceduralPrimitives);
-
-        mShiftPhotonPathPass.pBindingTable = RtBindingTable::create(1, 1, mpScene->getGeometryCount());
-        auto& sbt = mShiftPhotonPathPass.pBindingTable;
-        sbt->setRayGen(desc.addRayGen("rayGen", mpScene->getTypeConformances()));
-        sbt->setMiss(0, desc.addMiss("miss"));
-
-        if (mpScene->hasGeometryType(Scene::GeometryType::TriangleMesh))
-        {
-            sbt->setHitGroup(0, mpScene->getGeometryIDs(Scene::GeometryType::TriangleMesh), desc.addHitGroup("closestHit", "anyHit"));
-        }
-        DefineList defines;
-        defines.add(mpScene->getSceneDefines());
-        defines.add("IS_SHIFT", "1");
-        defines.add("IS_SHIFT_PATH", "1");
-        defines.add("IS_SHIFT_CAUSTIC", "0");
-        defines.add(getRuntimeDefines());
-
-        mShiftPhotonPathPass.pProgram = RtProgram::create(mpDevice, desc, defines);
-    }
-    // Update Defines
-    mShiftPhotonPathPass.pProgram->addDefines(getRuntimeDefines());
-
-    // Program Vars
-    if (!mShiftPhotonPathPass.pVars)
-        mShiftPhotonPathPass.initProgramVars(mpDevice, mpScene, mpSampleGenerator);
-    FALCOR_ASSERT(mShiftPhotonPathPass.pVars);
-    auto var = mShiftPhotonPathPass.pVars->getRootVar();
-    mpScene->setRaytracingShaderData(pRenderContext, var);
-
-    if (mOptions.usePhotonGuiding)
-        mpPhotonGuiding->setShaderData(var);
-
-    // Constant Buffer
-    var["CB"]["gFrameCount"] = mFrameCount;
-    var["CB"]["gPhotonRadius"] = mOptions.photonUseAdaptiveRadius ? mOptions.photonAdaptiveRadius : mOptions.photonRadius;
-    var["CB"]["gPackedPathLength"] = mOptions.photonPathLenght.pack();
-    var["CB"]["gGlobalRejectionProb"] = mOptions.photonGlobalRejection;
-    var["CB"]["gDispatchDimension"] = mPhotonDispatchDim;
-    var["CB"]["gScreenDimensions"] = mScreenRes;
-    var["CB"]["gMixedLightsAnalyticProbability"] = mOptions.photonMixedLightRatio;
-    var["CB"]["gNormalizedPixelDiagonal"] = mApproximatePixelDiagonal;
-
-    // Output Buffers
-    var["gPathReservoir"] = mpPathReservoir[(mReservoirIndex + 1) % 2]; // Temporal Reservoir
-
-    // Dispatch raytracing shader
-    mpScene->raytrace(
-        pRenderContext, mShiftPhotonPathPass.pProgram.get(), mShiftPhotonPathPass.pVars, uint3(mScreenRes.x, mScreenRes.y, 1)
-    );
-}
-
-void ReSTIR_FG_Plus_gated_simple::shiftCameraPathPass(RenderContext* pRenderContext, const RenderData& renderData, uint numPass)
-{
-    FALCOR_PROFILE(pRenderContext, "ShiftPathReservoir");
-
-    auto getRuntimeDefines = [&]()
-    {
-        DefineList defines = {};
-        defines.add(getMaterialDefines());
-        defines.add("USE_ENV_BACKGROUND", mpScene->useEnvBackground() ? "1" : "0");
-        defines.add("RNG_NUM_PASSES", std::to_string(mRNGNumPasses));
-        defines.add("USE_PHOTON_GUIDING", mOptions.usePhotonGuiding ? "1" : "0");
-        return defines;
-    };
-
-    // Perform shift for current and previous sample
-    for (uint i = 0; i < 2; i++)
-    {
-        auto& pass = mShiftCameraPathPass[i];
-        // Init Shader
-        if (!pass.pProgram)
-        {
-            RtProgram::Desc desc;
-            desc.addShaderModules(mpScene->getShaderModules());
-            desc.addShaderLibrary(kShaderTraceCamera);
-            desc.setMaxPayloadSize(sizeof(float) * 4);
-            desc.setMaxAttributeSize(mpScene->getRaytracingMaxAttributeSize());
-            desc.setMaxTraceRecursionDepth(1);
-            if (!mpScene->hasProceduralGeometry())
-                desc.setPipelineFlags(RtPipelineFlags::SkipProceduralPrimitives);
-
-            pass.pBindingTable = RtBindingTable::create(1, 1, mpScene->getGeometryCount());
-            auto& sbt = pass.pBindingTable;
-            sbt->setRayGen(desc.addRayGen("rayGen", mpScene->getTypeConformances()));
-            sbt->setMiss(0, desc.addMiss("miss"));
-
-            if (mpScene->hasGeometryType(Scene::GeometryType::TriangleMesh))
-            {
-                sbt->setHitGroup(0, mpScene->getGeometryIDs(Scene::GeometryType::TriangleMesh), desc.addHitGroup("closestHit", "anyHit"));
-            }
-
-            DefineList defines = {};
-            defines.add(mpScene->getSceneDefines());
-            defines.add("IS_SHIFT", "1");
-            defines.add("SHIFT_IS_CURRENT", i == 0 ? "1" : "0");
-
-            pass.pProgram = RtProgram::create(mpDevice, desc, defines);
-        }
-        // Defines that can change on runtime
-        pass.pProgram->addDefines(getRuntimeDefines());
-        if (mpEmissiveLightSampler)
-            pass.pProgram->addDefines(mpEmissiveLightSampler->getDefines());
-
-        // Program Vars
-        if (!pass.pVars)
-            pass.initProgramVars(mpDevice, mpScene, mpSampleGenerator);
-
-        FALCOR_ASSERT(pass.pVars);
-        auto var = pass.pVars->getRootVar();
-
-        // Constant Buffer
-        var["CB"]["gFrameCount"] = mFrameCount;
-        var["CB"]["gMaxPathLength"] = mOptions.cameraMaxPathLength;
-        var["CB"]["gJacobianDistanceThreshold"] = mOptions.jacobianDistanceThreshold;
-        var["CB"]["gNeeSelectProbabilites"] = mNeeLightSelectProb;
-
-        var["ShiftCB"]["gNumResamplingPass"] = numPass;
-        var["ShiftCB"]["gSpatialSampleRadius"] = mOptions.pathSpatialResamplingRadius;
-
-        // NEE Structures for Path Resampling
-        if (mpEmissiveLightSampler)
-            mpEmissiveLightSampler->setShaderData(var["Light"]["gEmissiveSampler"]);
-        if (mpEnvMapSampler)
-            mpEnvMapSampler->setShaderData(var["Light"]["gEnvMapSampler"]);
-
-        // Input Resources
-        ref<Texture> vbufferTex = i == 0 && numPass == 0 ? mpVBufferPrev : renderData[kInputVBuffer]->asTexture();
-        ref<Texture> viewTex = i == 0 && numPass == 0 ? mpViewPrev : renderData[kInputView]->asTexture();
-        uint reservoirIndex = numPass == 0 ? (mReservoirIndex + i) % 2 : (mReservoirIndex + 1) % 2;
-        var["gVBuffer"] = vbufferTex;
-        var["gView"] = viewTex;
-        var["gMVec"] = renderData[kInputMotionVectors]->asTexture();
-        var["gPathReservoir"] = mpPathReservoir[reservoirIndex];
-
-        // Output Resources
-        var["gShiftData"] = mpReservoirShiftData[i];
-
-        // Dispatch Shader
-        mpScene->raytrace(pRenderContext, pass.pProgram.get(), pass.pVars, uint3(mScreenRes, 1));
-    }
-}
-
-void ReSTIR_FG_Plus_gated_simple::resampleReservoirsPass(RenderContext* pRenderContext, const RenderData& renderData, uint numPass)
-{
-    FALCOR_PROFILE(pRenderContext, "ResamplePathReservoirs");
-
-    auto getRuntimeDefines = [&]()
-    {
-        DefineList defines = {};
-        defines.add(getMaterialDefines());
-        defines.add("USE_ENV_BACKGROUND", mpScene->useEnvBackground() ? "1" : "0");
-        defines.add("RNG_NUM_PASSES", std::to_string(mRNGNumPasses));
-        return defines;
-    };
-
-    // Initialize compute pass
-    if (!mpResampleReservoirPass)
-    {
-        Program::Desc desc;
-        desc.addShaderModules(mpScene->getShaderModules());
-        desc.addShaderLibrary(kShaderResamplingPathReservoir).csEntry("main").setShaderModel(kShaderModel);
-        desc.addTypeConformances(mpScene->getTypeConformances());
-
-        DefineList defines;
-        defines.add(mpScene->getSceneDefines());
-        defines.add(mpSampleGenerator->getDefines());
-        defines.add(getRuntimeDefines());
-
-        mpResampleReservoirPass = ComputePass::create(mpDevice, desc, defines, true);
-    }
-    FALCOR_ASSERT(mpResampleReservoirPass);
-    mpResampleReservoirPass->getProgram()->addDefines(getRuntimeDefines()); // Runtime defines
-
-    // Set shader variables
-    auto var = mpResampleReservoirPass->getRootVar();
-    mpScene->setRaytracingShaderData(pRenderContext, var); // Set scene data
-    mpSampleGenerator->setShaderData(var);                 // Sample generator
-
-    // Constant Buffer
-    var["CB"]["gFrameCount"] = mFrameCount;
-    var["CB"]["gFrameDim"] = mScreenRes;
-    var["CB"]["gConfidenceCap"] = mOptions.pathConfidenceCap;
-    var["CB"]["gSpatialRadius"] = mOptions.pathSpatialResamplingRadius;
-    var["CB"]["gNormalThreshold"] = mOptions.normalAngleThreshold;
-    var["CB"]["gJacobianDistanceThreshold"] = mOptions.jacobianDistanceThreshold;
-    var["CB"]["gRelativeDepthThreshold"] = mOptions.relativeDepthThreshold;
-    var["CB"]["gNumResamplingPass"] = numPass;
-
-    // Input Resources
-    var["gVBuffer"] = renderData[kInputVBuffer]->asTexture();
-    var["gVBufferPrev"] = mpVBufferPrev;
-    var["gView"] = renderData[kInputView]->asTexture();
-    var["gViewPrev"] = mpViewPrev;
-    var["gMVec"] = renderData[kInputMotionVectors]->asTexture();
-    var["gPathReservoirOther"] = mpPathReservoir[(mReservoirIndex + 1) % 2];
-    var["gShiftData"] = mpReservoirShiftData[0];
-    var["gShiftDataOther"] = mpReservoirShiftData[1];
-
-    // In-/Output Resources
-    var["gPathReservoir"] = mpPathReservoir[mReservoirIndex % 2];
-
-    // Execute Compute Pass
-    const uint2 targetDim = renderData.getDefaultTextureDims();
-    FALCOR_ASSERT(targetDim.x > 0 && targetDim.y > 0);
-    mpResampleReservoirPass->execute(pRenderContext, uint3(targetDim, 1));
-}
-
+// executes TracePhotons.rt.slang with IS_SHIFT / IS_SHIFT_CAUSTIC = true
 void ReSTIR_FG_Plus_gated_simple::shiftCausticPathPass(RenderContext* pRenderContext, const RenderData& renderData)
 {
     FALCOR_PROFILE(pRenderContext, "ShiftCaustics");
@@ -1291,6 +1069,7 @@ void ReSTIR_FG_Plus_gated_simple::shiftCausticPathPass(RenderContext* pRenderCon
     );
 }
 
+// executes BackprojectCaustics.cs.slang with BACKPROJECT_TMP_RESERVOIRS = true
 void ReSTIR_FG_Plus_gated_simple::backprojectTemporalCausticReservoirsPass(RenderContext* pRenderContext, const RenderData& renderData)
 {
     FALCOR_PROFILE(pRenderContext, "BackprojectTemporalCausticReservoirs");
@@ -1332,6 +1111,9 @@ void ReSTIR_FG_Plus_gated_simple::backprojectTemporalCausticReservoirsPass(Rende
     var["CB"]["gFrameCount"] = mFrameCount;
     var["CB"]["gScreenDims"] = mScreenRes;
 
+    var["GateCB"]["gateValue"] = mOptions.gateValue;
+    var["GateCB"]["gateTol"] = mOptions.gateTolerance;
+
     var["gLightTraceHeadCounter"] = mpLightTraceHeadCounter;
     var["gLightTraceLinkedList"] = mpLightTraceLinkedList;
 
@@ -1343,6 +1125,7 @@ void ReSTIR_FG_Plus_gated_simple::backprojectTemporalCausticReservoirsPass(Rende
     pRenderContext->uavBarrier(mpLightTraceHeadCounter.get());
 }
 
+// executes ResampleReservoirCaustic.cs.slang
 void ReSTIR_FG_Plus_gated_simple::resampleReservoirCausticPass(RenderContext* pRenderContext, const RenderData& renderData)
 {
     FALCOR_PROFILE(pRenderContext, "ResamplingCaustics");
@@ -1411,6 +1194,252 @@ void ReSTIR_FG_Plus_gated_simple::resampleReservoirCausticPass(RenderContext* pR
     pRenderContext->uavBarrier(mpLightTraceHeadCounter.get());
 }
 
+// executes TracePhotons.rt.slang with IS_SHIFT / IS_SHIFT_PATH = true
+void ReSTIR_FG_Plus_gated_simple::shiftPhotonPathPass(RenderContext* pRenderContext, const RenderData& renderData)
+{
+    FALCOR_PROFILE(pRenderContext, "ShiftPhotonPath");
+
+    auto getRuntimeDefines = [&]()
+    {
+        DefineList defines = {};
+        defines.add("PHOTON_BUFFER_SIZE_GLOBAL", std::to_string(mOptions.photonBufferSizeGlobal));
+        defines.add("PHOTON_BUFFER_SIZE_CAUSTIC", std::to_string(mOptions.photonBufferSizeCaustic));
+        defines.add("RNG_NUM_PASSES", std::to_string(mRNGNumPasses));
+        defines.add("USE_EMISSIVE_LIGHTS", mpScene->useEmissiveLights() ? "1" : "0");
+        defines.add("USE_ANALYTIC_LIGHTS", mpScene->useAnalyticLights() ? "1" : "0");
+        defines.add("USE_ADAPTIVE_PHOTON_RADIUS", mOptions.photonUseAdaptiveRadius ? "1" : "0");
+        defines.add(getMaterialDefines());
+        defines.add("USE_PHOTON_GUIDING", mOptions.usePhotonGuiding ? "1" : "0");
+        if (mOptions.usePhotonGuiding)
+            defines.add(mpPhotonGuiding->getDefines());
+
+        return defines;
+    };
+
+    // Init Shader
+    if (!mShiftPhotonPathPass.pProgram)
+    {
+        RtProgram::Desc desc;
+        desc.addShaderModules(mpScene->getShaderModules());
+        desc.addShaderLibrary(kShaderTracePhotons);
+        desc.setMaxPayloadSize(sizeof(float) * 4);
+        desc.setMaxAttributeSize(mpScene->getRaytracingMaxAttributeSize());
+        desc.setMaxTraceRecursionDepth(1);
+        if (!mpScene->hasProceduralGeometry())
+            desc.setPipelineFlags(RtPipelineFlags::SkipProceduralPrimitives);
+
+        mShiftPhotonPathPass.pBindingTable = RtBindingTable::create(1, 1, mpScene->getGeometryCount());
+        auto& sbt = mShiftPhotonPathPass.pBindingTable;
+        sbt->setRayGen(desc.addRayGen("rayGen", mpScene->getTypeConformances()));
+        sbt->setMiss(0, desc.addMiss("miss"));
+
+        if (mpScene->hasGeometryType(Scene::GeometryType::TriangleMesh))
+        {
+            sbt->setHitGroup(0, mpScene->getGeometryIDs(Scene::GeometryType::TriangleMesh), desc.addHitGroup("closestHit", "anyHit"));
+        }
+        DefineList defines;
+        defines.add(mpScene->getSceneDefines());
+        defines.add("IS_SHIFT", "1");
+        defines.add("IS_SHIFT_PATH", "1");
+        defines.add("IS_SHIFT_CAUSTIC", "0");
+        defines.add(getRuntimeDefines());
+
+        mShiftPhotonPathPass.pProgram = RtProgram::create(mpDevice, desc, defines);
+    }
+    // Update Defines
+    mShiftPhotonPathPass.pProgram->addDefines(getRuntimeDefines());
+
+    // Program Vars
+    if (!mShiftPhotonPathPass.pVars)
+        mShiftPhotonPathPass.initProgramVars(mpDevice, mpScene, mpSampleGenerator);
+    FALCOR_ASSERT(mShiftPhotonPathPass.pVars);
+    auto var = mShiftPhotonPathPass.pVars->getRootVar();
+    mpScene->setRaytracingShaderData(pRenderContext, var);
+
+    if (mOptions.usePhotonGuiding)
+        mpPhotonGuiding->setShaderData(var);
+
+    // Constant Buffer
+    var["CB"]["gFrameCount"] = mFrameCount;
+    var["CB"]["gPhotonRadius"] = mOptions.photonUseAdaptiveRadius ? mOptions.photonAdaptiveRadius : mOptions.photonRadius;
+    var["CB"]["gPackedPathLength"] = mOptions.photonPathLenght.pack();
+    var["CB"]["gGlobalRejectionProb"] = mOptions.photonGlobalRejection;
+    var["CB"]["gDispatchDimension"] = mPhotonDispatchDim;
+    var["CB"]["gScreenDimensions"] = mScreenRes;
+    var["CB"]["gMixedLightsAnalyticProbability"] = mOptions.photonMixedLightRatio;
+    var["CB"]["gNormalizedPixelDiagonal"] = mApproximatePixelDiagonal;
+
+    // Output Buffers
+    var["gPathReservoir"] = mpPathReservoir[(mReservoirIndex + 1) % 2]; // Temporal Reservoir
+
+    // Dispatch raytracing shader
+    mpScene->raytrace(
+        pRenderContext, mShiftPhotonPathPass.pProgram.get(), mShiftPhotonPathPass.pVars, uint3(mScreenRes.x, mScreenRes.y, 1)
+    );
+}
+
+// executes TraceCamera.rt.slang with IS_SHIFT = true and IS_SHIFT_CURRENT once for 1 and once for 0 (two shader dispatches)
+void ReSTIR_FG_Plus_gated_simple::shiftCameraPathPass(RenderContext* pRenderContext, const RenderData& renderData, uint numPass)
+{
+    FALCOR_PROFILE(pRenderContext, "ShiftPathReservoir");
+
+    auto getRuntimeDefines = [&]()
+    {
+        DefineList defines = {};
+        defines.add(getMaterialDefines());
+        defines.add("USE_ENV_BACKGROUND", mpScene->useEnvBackground() ? "1" : "0");
+        defines.add("RNG_NUM_PASSES", std::to_string(mRNGNumPasses));
+        defines.add("USE_PHOTON_GUIDING", mOptions.usePhotonGuiding ? "1" : "0");
+        return defines;
+    };
+
+    // Perform shift for current and previous sample
+    for (uint i = 0; i < 2; i++)
+    {
+        auto& pass = mShiftCameraPathPass[i];
+        // Init Shader
+        if (!pass.pProgram)
+        {
+            RtProgram::Desc desc;
+            desc.addShaderModules(mpScene->getShaderModules());
+            desc.addShaderLibrary(kShaderTraceCamera);
+            desc.setMaxPayloadSize(sizeof(float) * 4);
+            desc.setMaxAttributeSize(mpScene->getRaytracingMaxAttributeSize());
+            desc.setMaxTraceRecursionDepth(1);
+            if (!mpScene->hasProceduralGeometry())
+                desc.setPipelineFlags(RtPipelineFlags::SkipProceduralPrimitives);
+
+            pass.pBindingTable = RtBindingTable::create(1, 1, mpScene->getGeometryCount());
+            auto& sbt = pass.pBindingTable;
+            sbt->setRayGen(desc.addRayGen("rayGen", mpScene->getTypeConformances()));
+            sbt->setMiss(0, desc.addMiss("miss"));
+
+            if (mpScene->hasGeometryType(Scene::GeometryType::TriangleMesh))
+            {
+                sbt->setHitGroup(0, mpScene->getGeometryIDs(Scene::GeometryType::TriangleMesh), desc.addHitGroup("closestHit", "anyHit"));
+            }
+
+            DefineList defines = {};
+            defines.add(mpScene->getSceneDefines());
+            defines.add("IS_SHIFT", "1");
+            defines.add("SHIFT_IS_CURRENT", i == 0 ? "1" : "0");
+
+            pass.pProgram = RtProgram::create(mpDevice, desc, defines);
+        }
+        // Defines that can change on runtime
+        pass.pProgram->addDefines(getRuntimeDefines());
+        if (mpEmissiveLightSampler)
+            pass.pProgram->addDefines(mpEmissiveLightSampler->getDefines());
+
+        // Program Vars
+        if (!pass.pVars)
+            pass.initProgramVars(mpDevice, mpScene, mpSampleGenerator);
+
+        FALCOR_ASSERT(pass.pVars);
+        auto var = pass.pVars->getRootVar();
+
+        // Constant Buffer
+        var["CB"]["gFrameCount"] = mFrameCount;
+        var["CB"]["gMaxPathLength"] = mOptions.cameraMaxPathLength;
+        var["CB"]["gJacobianDistanceThreshold"] = mOptions.jacobianDistanceThreshold;
+        var["CB"]["gNeeSelectProbabilites"] = mNeeLightSelectProb;
+
+        var["GateCB"]["gateValue"] = mOptions.gateValue;
+        var["GateCB"]["gateTol"] = mOptions.gateTolerance;
+
+        var["ShiftCB"]["gNumResamplingPass"] = numPass;
+        var["ShiftCB"]["gSpatialSampleRadius"] = mOptions.pathSpatialResamplingRadius;
+
+        // NEE Structures for Path Resampling
+        if (mpEmissiveLightSampler)
+            mpEmissiveLightSampler->setShaderData(var["Light"]["gEmissiveSampler"]);
+        if (mpEnvMapSampler)
+            mpEnvMapSampler->setShaderData(var["Light"]["gEnvMapSampler"]);
+
+        // Input Resources
+        ref<Texture> vbufferTex = i == 0 && numPass == 0 ? mpVBufferPrev : renderData[kInputVBuffer]->asTexture();
+        ref<Texture> viewTex = i == 0 && numPass == 0 ? mpViewPrev : renderData[kInputView]->asTexture();
+        uint reservoirIndex = numPass == 0 ? (mReservoirIndex + i) % 2 : (mReservoirIndex + 1) % 2;
+        var["gVBuffer"] = vbufferTex;
+        var["gView"] = viewTex;
+        var["gMVec"] = renderData[kInputMotionVectors]->asTexture();
+        var["gPathReservoir"] = mpPathReservoir[reservoirIndex];
+
+        // Output Resources
+        var["gShiftData"] = mpReservoirShiftData[i];
+
+        // Dispatch Shader
+        mpScene->raytrace(pRenderContext, pass.pProgram.get(), pass.pVars, uint3(mScreenRes, 1));
+    }
+}
+
+// executes ResamplePathReservoir.cs.slang
+void ReSTIR_FG_Plus_gated_simple::resampleReservoirsPass(RenderContext* pRenderContext, const RenderData& renderData, uint numPass)
+{
+    FALCOR_PROFILE(pRenderContext, "ResamplePathReservoirs");
+
+    auto getRuntimeDefines = [&]()
+    {
+        DefineList defines = {};
+        defines.add(getMaterialDefines());
+        defines.add("USE_ENV_BACKGROUND", mpScene->useEnvBackground() ? "1" : "0");
+        defines.add("RNG_NUM_PASSES", std::to_string(mRNGNumPasses));
+        return defines;
+    };
+
+    // Initialize compute pass
+    if (!mpResampleReservoirPass)
+    {
+        Program::Desc desc;
+        desc.addShaderModules(mpScene->getShaderModules());
+        desc.addShaderLibrary(kShaderResamplingPathReservoir).csEntry("main").setShaderModel(kShaderModel);
+        desc.addTypeConformances(mpScene->getTypeConformances());
+
+        DefineList defines;
+        defines.add(mpScene->getSceneDefines());
+        defines.add(mpSampleGenerator->getDefines());
+        defines.add(getRuntimeDefines());
+
+        mpResampleReservoirPass = ComputePass::create(mpDevice, desc, defines, true);
+    }
+    FALCOR_ASSERT(mpResampleReservoirPass);
+    mpResampleReservoirPass->getProgram()->addDefines(getRuntimeDefines()); // Runtime defines
+
+    // Set shader variables
+    auto var = mpResampleReservoirPass->getRootVar();
+    mpScene->setRaytracingShaderData(pRenderContext, var); // Set scene data
+    mpSampleGenerator->setShaderData(var);                 // Sample generator
+
+    // Constant Buffer
+    var["CB"]["gFrameCount"] = mFrameCount;
+    var["CB"]["gFrameDim"] = mScreenRes;
+    var["CB"]["gConfidenceCap"] = mOptions.pathConfidenceCap;
+    var["CB"]["gSpatialRadius"] = mOptions.pathSpatialResamplingRadius;
+    var["CB"]["gNormalThreshold"] = mOptions.normalAngleThreshold;
+    var["CB"]["gJacobianDistanceThreshold"] = mOptions.jacobianDistanceThreshold;
+    var["CB"]["gRelativeDepthThreshold"] = mOptions.relativeDepthThreshold;
+    var["CB"]["gNumResamplingPass"] = numPass;
+
+    // Input Resources
+    var["gVBuffer"] = renderData[kInputVBuffer]->asTexture();
+    var["gVBufferPrev"] = mpVBufferPrev;
+    var["gView"] = renderData[kInputView]->asTexture();
+    var["gViewPrev"] = mpViewPrev;
+    var["gMVec"] = renderData[kInputMotionVectors]->asTexture();
+    var["gPathReservoirOther"] = mpPathReservoir[(mReservoirIndex + 1) % 2];
+    var["gShiftData"] = mpReservoirShiftData[0];
+    var["gShiftDataOther"] = mpReservoirShiftData[1];
+
+    // In-/Output Resources
+    var["gPathReservoir"] = mpPathReservoir[mReservoirIndex % 2];
+
+    // Execute Compute Pass
+    const uint2 targetDim = renderData.getDefaultTextureDims();
+    FALCOR_ASSERT(targetDim.x > 0 && targetDim.y > 0);
+    mpResampleReservoirPass->execute(pRenderContext, uint3(targetDim, 1));
+}
+
+// executes EvaluateReservoirs.cs.slang
 void ReSTIR_FG_Plus_gated_simple::evaluateReservoirsPass(RenderContext* pRenderContext, const RenderData& renderData)
 {
     FALCOR_PROFILE(pRenderContext, "EvaluateReservoirs");
@@ -1482,6 +1511,8 @@ void ReSTIR_FG_Plus_gated_simple::evaluateReservoirsPass(RenderContext* pRenderC
     FALCOR_ASSERT(targetDim.x > 0 && targetDim.y > 0);
     mpEvaluateReservoirsPass->execute(pRenderContext, uint3(targetDim, 1));
 }
+
+
 
 DefineList ReSTIR_FG_Plus_gated_simple::getMaterialDefines()
 {

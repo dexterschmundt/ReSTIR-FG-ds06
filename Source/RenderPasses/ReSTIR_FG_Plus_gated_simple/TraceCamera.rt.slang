@@ -58,6 +58,14 @@ cbuffer ShiftCB
 }
 #endif
 
+cbuffer GateCB
+{
+    float gateValue;
+    float gateTol;
+}
+
+static const Gate gate = Gate(gateValue, gateTol);
+
 //Shared defines
 static const bool kAlphaTest = ENABLE_ALPHA_TEST;
 static const uint kRNGNumPasses = RNG_NUM_PASSES;
@@ -111,7 +119,7 @@ struct PathData {
     uint flags;             //Path Lenght and Flags
 
     float3 prevFaceN;       // Face Normal from last frame
-    bool _pad;              // Padding
+    float totalTravelDist;              // total travel distanc, starting from camera
 
 #if IS_SHIFT
     float3 F;               // Accumulated path radiance
@@ -126,7 +134,7 @@ struct PathData {
         specularPath = true;
         prevPosW = float3(0);
         prevFaceN = float3(0);
-        _pad = 0;
+        totalTravelDist = 0.0;
     #if IS_SHIFT
         F = float3(0);   
         jacobian = 0;
@@ -218,9 +226,9 @@ bool hitSphere(const float3 center, const float radius, const float3 p)
     return dot(radiusTest, radiusTest) < radius * radius;
 }
 
-//Performes photon collection using the ray tracing acceleration structure
-//RIS is used to select one representative photon
-void photonRIS(ShadingData sd, IMaterialInstance mi, float3 N, bool collectOnlyCaustics, inout SampleGenerator sg, out PhotonSample photonSample, bool collectOnlyDirectGlobal = false) {
+// Performes photon collection using the ray tracing acceleration structure
+// RIS is used to select one representative photon
+void photonRIS(ShadingData sd, IMaterialInstance mi, float3 N, bool collectOnlyCaustics, float camPathTravelDistance, inout SampleGenerator sg, out PhotonSample photonSample, bool collectOnlyDirectGlobal = false) {
     photonSample = PhotonSample();
     RayDesc ray;
     ray.Origin = sd.posW;
@@ -253,6 +261,12 @@ void photonRIS(ShadingData sd, IMaterialInstance mi, float3 N, bool collectOnlyC
         if (kUsePhotonGuiding)
             pgd = gPhotonGuidingData[instanceIdx][primIdx];
 
+        // Check if time gate is passed
+        float lightPathTravelDistance = photonData.travelDistance;
+        //float camPathTravelDistance = length(gScene.camera.getPosition() - photonPosW); passed as argumnent of this function
+        if (!gate.pass(lightPathTravelDistance + camPathTravelDistance))
+            continue;
+
         // If direct global photons should be collected and the photon is global, check the path length
         if (collectOnlyDirectGlobal)
         {
@@ -264,6 +278,8 @@ void photonRIS(ShadingData sd, IMaterialInstance mi, float3 N, bool collectOnlyC
         // Check for diffent surfaces (e.g. corners)
         if ((dot(photonData.faceN, sd.faceN) < 0.6) || (NdotL <= 0))
             continue;
+
+        
 
         float3 bsdf = mi.eval(sd, photonData.dir, sg);
         float3 F = max(0, (photonData.flux * bsdf) / (M_PI * radius * radius * NdotL)); // NdotL needs to be taken out of the bsdf for Photon Mapping
@@ -411,6 +427,9 @@ void tracePath(RayDesc ray, inout PathData pd, inout PathReservoir pathReservoir
             hitIsDiffuse = roughnessThreshold;
         bool hitIsReconnectionSurface = hitIsDiffuse && jacobianDistanceThreshold && roughnessThreshold;
 
+        // update totalTravelDist of path
+        pd.totalTravelDist += rayDist;
+
         // Handle Emissive Hit. The sample is evaluated if the whole path has diffuse surfaces to
         // collect photons or if NEE was used in the last iteration.
         // Path length == 1 is covered by RTXDI, except when the first hit was delta
@@ -418,7 +437,7 @@ void tracePath(RayDesc ray, inout PathData pd, inout PathReservoir pathReservoir
         validEmissiveHitSample &= pd.pathLength > 1 && pd.specularPath || (pd.pathLength == 1 && pd.deltaPath) || pd.lastHitNee;
         if (kIsShift)
             validEmissiveHitSample &= pathReservoir.flags.isEmissiveHit && (pd.pathLength == pathReservoir.pathLength);
-        if (validEmissiveHitSample)
+        if (validEmissiveHitSample) //TODO: make this abide gate
         {
             float misWeight = 1.0;
             float neeEmissiveProbability = gNeeSelectProbabilites[kNeeLightTypeEmissive];
@@ -534,7 +553,7 @@ void tracePath(RayDesc ray, inout PathData pd, inout PathReservoir pathReservoir
             #else //IS_SHIFT, Collect photons and do NEE
                 //Collect Photons
                 PhotonSample photonSample;
-                photonRIS(sd, mi, bsdfProperties.guideNormal, !isFinalGather, pd.sg, photonSample);
+                photonRIS(sd, mi, bsdfProperties.guideNormal, /*collectOnlyCaustics =*/ !isFinalGather, pd.totalTravelDist ,pd.sg, photonSample);
                 if (addSampleToReservoir(pathReservoir, sampleNext1D(pd.sg), photonSample.F, pd.thp))
                 {
                     pathReservoir.pathLength = isReconnectionSurface ? pd.pathLength - 1 : pd.pathLength;
@@ -657,6 +676,7 @@ inline void setFirstHitSurfaceData(inout PathData pd, const ShadingData sd, cons
     //Set prev pos and faceN
     pd.prevPosW = sd.posW;
     pd.prevFaceN = sd.faceN;
+    pd.totalTravelDist = length(gScene.camera.getPosition() - sd.posW); // since sd is from VBuffer this works
 }
 
 #if IS_SHIFT

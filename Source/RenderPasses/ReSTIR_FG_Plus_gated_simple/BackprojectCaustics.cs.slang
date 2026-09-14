@@ -23,7 +23,7 @@ import StructsAndHelpers;
 
     RWStructuredBuffer<CausticReservoir> gCausticReservoir;
     RWTexture2D<uint2> gCausticReservoirGuidingData; 
-    RWTexture2D<int> gLightTraceHeadCounter; // Is cleared
+    RWTexture2D<int> gLightTraceHeadCounter; // Is cleared after pass
 #endif
 
 cbuffer CB
@@ -32,6 +32,14 @@ cbuffer CB
     uint2 gScreenDims;         //Screen dimensions
     float _pad;
 }
+
+cbuffer GateCB
+{
+    float gateValue;
+    float gateTol;
+}
+
+static const Gate gate = Gate(gateValue, gateTol);
 
 static const uint kRNGNumPasses = RNG_NUM_PASSES;
 static const uint kMIHints = (uint)MaterialInstanceHints::AdjustShadingNormal;
@@ -85,6 +93,12 @@ void initializeCausticReservoir(const uint2 pixel)
         directionToCamera /= distanceToCamera;
         const float3 camForward = normalize(gScene.camera.data.cameraW);
         const float backprojectJacobian = getBackprojectJacobian(gScreenDims.y, directionToCamera, distanceToCamera);
+
+        // Check if time gate is passed
+        float lightPathLength = photonData.travelDistance;
+        float camPathLength = distanceToCamera;
+        if (!gate.pass(lightPathLength + camPathLength))
+            continue;
 
         // Eval BSDF, targetFunction and reservoir weight
         const float3 bsdf = mi.eval(sd, directionToCamera, sg);

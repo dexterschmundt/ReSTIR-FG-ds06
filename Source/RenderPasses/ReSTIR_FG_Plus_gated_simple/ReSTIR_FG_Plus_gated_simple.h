@@ -14,7 +14,7 @@ using namespace Falcor;
 class ReSTIR_FG_Plus_gated_simple : public RenderPass
 {
 public:
-    FALCOR_PLUGIN_CLASS(ReSTIR_FG_Plus_gated_simple, "ReSTIR_FG_Plus_gated_simple", "Real-Time Global Illumination with Caustics with simple time gating");
+    FALCOR_PLUGIN_CLASS(ReSTIR_FG_Plus_gated_simple, "ReSTIR_FG_Plus_gated_simple", "Real-Time Global Illumination with Caustics and naive time gating");
 
     static ref<ReSTIR_FG_Plus_gated_simple> create(ref<Device> pDevice, const Properties& props)
     {
@@ -95,6 +95,14 @@ private:
         float specularRoughnessThreshold = 0.25f; // Any material below this is considered specular
         bool evaluateDeltaPDFs = false;           // If set on true, delta pdfs are evaluated (always 0), else they are set to 1
         bool enableAlphaTest = true;              // Alpha Test
+
+
+        //
+        // Time Gating Options
+        //
+
+        float gateValue = 10;
+        float gateTolerance = 1;
 
         //
         // Debug Options
