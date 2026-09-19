@@ -60,6 +60,7 @@ cbuffer ShiftCB
 
 cbuffer GateCB
 {
+    bool enableTimeGating;
     float gateValue;
     float gateTol;
 }
@@ -262,10 +263,13 @@ void photonRIS(ShadingData sd, IMaterialInstance mi, float3 N, bool collectOnlyC
             pgd = gPhotonGuidingData[instanceIdx][primIdx];
 
         // Check if time gate is passed
-        float lightPathTravelDistance = photonData.travelDistance;
-        //float camPathTravelDistance = length(gScene.camera.getPosition() - photonPosW); passed as argumnent of this function
-        if (!gate.pass(lightPathTravelDistance + camPathTravelDistance))
-            continue;
+        if (enableTimeGating) {
+            float lightPathTravelDistance = photonData.travelDistance;
+            // float camPathTravelDistance = length(gScene.camera.getPosition() - photonPosW); passed as argumnent of this function
+            if (!gate.pass(lightPathTravelDistance + camPathTravelDistance))
+                continue;
+        }
+        
 
         // If direct global photons should be collected and the photon is global, check the path length
         if (collectOnlyDirectGlobal)

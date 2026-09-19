@@ -35,6 +35,7 @@ cbuffer CB
 
 cbuffer GateCB
 {
+    bool enableTimeGating;
     float gateValue;
     float gateTol;
 }
@@ -95,10 +96,15 @@ void initializeCausticReservoir(const uint2 pixel)
         const float backprojectJacobian = getBackprojectJacobian(gScreenDims.y, directionToCamera, distanceToCamera);
 
         // Check if time gate is passed
-        float lightPathLength = photonData.travelDistance;
-        float camPathLength = distanceToCamera;
-        if (!gate.pass(lightPathLength + camPathLength))
-            continue;
+        //if (enableTimeGating) {
+        //    float lightPathLength = photonData.travelDistance;
+        //    float camPathLength = distanceToCamera;
+        //    if (!gate.pass(lightPathLength + camPathLength))
+        //        continue;
+        //}
+
+        /////////////////////ONLY THIS CAUSES PROBLEMS
+        //////////////////// NEXT STEP: do GateHelper file and addGateVars to simplify usage of shared code, implement enabling gating via defines, and fix this bullshi
 
         // Eval BSDF, targetFunction and reservoir weight
         const float3 bsdf = mi.eval(sd, directionToCamera, sg);

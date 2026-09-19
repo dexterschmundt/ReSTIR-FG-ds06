@@ -198,6 +198,21 @@ void ReSTIR_FG_Plus_gated_simple::renderUI(Gui::Widgets& widget)
         mClearReservoir = group.button("Clear Reservoirs");
     }
 
+    if (auto group = widget.group("Time Gating Options"))
+    {
+        group.checkbox("Enable Time Gating", mOptions.enableTimeGating);
+        group.tooltip("Allows only Paths with a certain total length and thereby allows time-of-flight simulations");
+
+        group.var("Gate Value", mOptions.gateValue, 0.f, 100.f, 0.01f);
+        group.tooltip("Total path lenght allowed and thereby total light travel distance allowed");
+
+        group.var("Gate Tolerance", mOptions.gateTolerance, 0.f, 5.f, 0.0015f);
+        group.tooltip("Allowed deviation from Gate Value");
+
+        //TODO: add ability to let gate value increase automatically with chosen speed
+        // what does changed do?
+    }
+
     if (auto group = widget.group("Material Options"))
     {
         changed |= group.checkbox("Use Lambertian Diffuse BSDF", mOptions.useLambertianDiffuseBSDF);
@@ -865,6 +880,7 @@ void ReSTIR_FG_Plus_gated_simple::backprojectCausticsPass(RenderContext* pRender
     var["CB"]["gFrameCount"] = mFrameCount;
     var["CB"]["gScreenDims"] = mScreenRes;
 
+    var["GateCB"]["enableTimeGating"] = mOptions.enableTimeGating;
     var["GateCB"]["gateValue"] = mOptions.gateValue;
     var["GateCB"]["gateTol"] = mOptions.gateTolerance;
 
@@ -951,6 +967,7 @@ void ReSTIR_FG_Plus_gated_simple::traceCameraPass(RenderContext* pRenderContext,
     var["CB"]["gJacobianDistanceThreshold"] = mOptions.jacobianDistanceThreshold;
     var["CB"]["gNeeSelectProbabilites"] = mNeeLightSelectProb;
 
+    var["GateCB"]["enableTimeGating"] = mOptions.enableTimeGating;
     var["GateCB"]["gateValue"] = mOptions.gateValue;
     var["GateCB"]["gateTol"] = mOptions.gateTolerance;
 
@@ -1111,6 +1128,7 @@ void ReSTIR_FG_Plus_gated_simple::backprojectTemporalCausticReservoirsPass(Rende
     var["CB"]["gFrameCount"] = mFrameCount;
     var["CB"]["gScreenDims"] = mScreenRes;
 
+    var["GateCB"]["enableTimeGating"] = mOptions.enableTimeGating;
     var["GateCB"]["gateValue"] = mOptions.gateValue;
     var["GateCB"]["gateTol"] = mOptions.gateTolerance;
 
@@ -1344,6 +1362,7 @@ void ReSTIR_FG_Plus_gated_simple::shiftCameraPathPass(RenderContext* pRenderCont
         var["CB"]["gJacobianDistanceThreshold"] = mOptions.jacobianDistanceThreshold;
         var["CB"]["gNeeSelectProbabilites"] = mNeeLightSelectProb;
 
+        var["GateCB"]["enableTimeGating"] = mOptions.enableTimeGating;
         var["GateCB"]["gateValue"] = mOptions.gateValue;
         var["GateCB"]["gateTol"] = mOptions.gateTolerance;
 

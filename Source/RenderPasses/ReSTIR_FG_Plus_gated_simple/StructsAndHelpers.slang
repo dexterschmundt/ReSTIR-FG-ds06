@@ -412,6 +412,7 @@ struct PackedPathLength
 }
 
 // Helper struct for Gates so i dont have to do all of this
+// TODO: maybe make a seperate GateHelper.hlsl that automatically gets GateCB and provides the pass fkt
 struct Gate
 {
     float value;
@@ -422,19 +423,20 @@ struct Gate
         this.tol = tol;
     }
 
-    property float lowerBound {
-        get { return value - tol >= 0.0 ? value - tol : 0.0; }
-    }
+    //property float lowerBound {
+    //    get { return value - tol; }
+    //}
 
-    property float upperBound {
-        get { return value + tol; }
-    }
+    //property float upperBound {
+    //    get { return value + tol; }
+    //}
 
     // totalPathDistance = LightPathDistance + CamPathDistance
-    // paths with negative lentgh will be rejected
-    // upperBound must result into something positive 
+    // rejects paths with negative lentgh //TODO maybe optimize this by just enforcing it with how gate value and tol can be set or just make it lower and upper on cpu side
     bool pass(float totalPathDistance) {
-        return (this.lowerBound <= totalPathDistance) && (totalPathDistance <= this.upperBound);
+        return ((0 <= totalPathDistance)
+        && (value - tol) <= totalPathDistance)
+        && (totalPathDistance <= (value + tol));
     }
 }
 
