@@ -14,6 +14,8 @@ target_sources(ReSTIR_FG_Plus_gated_simple PRIVATE
     ResamplePathReservoir.cs.slang
     ResampleReservoirCaustic.cs.slang
 	EvaluateReservoirs.cs.slang
+
+    TimeGatingHelper.slang
 )
 
 target_copy_shaders(ReSTIR_FG_Plus_gated_simple RenderPasses/ReSTIR_FG_Plus_gated_simple)

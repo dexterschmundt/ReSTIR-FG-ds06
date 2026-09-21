@@ -78,11 +78,15 @@ void initializeCausticReservoir(const uint2 pixel)
     int headIndex = gLightTraceHeadCounter[pixel];
     while (headIndex >= 0)
     {
+        // Update head index (moved up so time gate can be implemented with simple continue statement)
+        int currentIndex = headIndex;
+        headIndex = gLightTraceLinkedList[currentIndex];
+
         // Get Photon and Surface Data
-        HitInfo photonHit = HitInfo(gPhotonHitInfo[headIndex]);
+        HitInfo photonHit = HitInfo(gPhotonHitInfo[currentIndex]);
         if (!photonHit.isValid())
             break;
-        PhotonData photonData = gPhotonData[headIndex];
+        PhotonData photonData = gPhotonData[currentIndex];
 
         // Init Material
         ShadingData sd = loadShadingData(photonHit, photonData.dir, lod);
@@ -96,14 +100,14 @@ void initializeCausticReservoir(const uint2 pixel)
         const float backprojectJacobian = getBackprojectJacobian(gScreenDims.y, directionToCamera, distanceToCamera);
 
         // Check if time gate is passed
-        //if (enableTimeGating) {
-        //    float lightPathLength = photonData.travelDistance;
-        //    float camPathLength = distanceToCamera;
-        //    if (!gate.pass(lightPathLength + camPathLength))
-        //        continue;
-        //}
+        if (enableTimeGating) {
+            float lightPathLength = photonData.travelDistance;
+            float camPathLength = distanceToCamera;
+            if (!gate.pass(lightPathLength + camPathLength))
+                continue;
+        }
 
-        /////////////////////ONLY THIS CAUSES PROBLEMS
+        
         //////////////////// NEXT STEP: do GateHelper file and addGateVars to simplify usage of shared code, implement enabling gating via defines, and fix this bullshi
 
         // Eval BSDF, targetFunction and reservoir weight
@@ -122,12 +126,8 @@ void initializeCausticReservoir(const uint2 pixel)
             r.invPhotonScaleFactor = photonData.invPhotonScaleFactor;
             r.targetFunction = targetFunction;
             if (kUsePhotonGuiding)
-                pgd = gPhotonGuidingData[headIndex];
+                pgd = gPhotonGuidingData[currentIndex];
         }
-
-        // Update head index
-        int newHead = gLightTraceLinkedList[headIndex];
-        headIndex = newHead;
     }
 
     // Finalize Reservoir
