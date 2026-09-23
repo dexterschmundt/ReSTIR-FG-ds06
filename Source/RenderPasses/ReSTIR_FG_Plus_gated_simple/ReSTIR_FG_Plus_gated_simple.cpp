@@ -880,10 +880,6 @@ void ReSTIR_FG_Plus_gated_simple::backprojectCausticsPass(RenderContext* pRender
     var["CB"]["gFrameCount"] = mFrameCount;
     var["CB"]["gScreenDims"] = mScreenRes;
 
-    var["GateCB"]["enableTimeGating"] = mOptions.enableTimeGating;
-    var["GateCB"]["gateValue"] = mOptions.gateValue;
-    var["GateCB"]["gateTol"] = mOptions.gateTolerance;
-
     var["gLightTraceHeadCounter"] = mpLightTraceHeadCounter;
     var["gLightTraceLinkedList"] = mpLightTraceLinkedList;
     var["gPhotonData"] = mpPhotonData[1]; // Caustic photon data
@@ -967,9 +963,7 @@ void ReSTIR_FG_Plus_gated_simple::traceCameraPass(RenderContext* pRenderContext,
     var["CB"]["gJacobianDistanceThreshold"] = mOptions.jacobianDistanceThreshold;
     var["CB"]["gNeeSelectProbabilites"] = mNeeLightSelectProb;
 
-    var["GateCB"]["enableTimeGating"] = mOptions.enableTimeGating;
-    var["GateCB"]["gateValue"] = mOptions.gateValue;
-    var["GateCB"]["gateTol"] = mOptions.gateTolerance;
+    setGatingData(var);
 
     // RTXDI Resources
     mpRTXDI->setShaderData(var);
@@ -1128,9 +1122,7 @@ void ReSTIR_FG_Plus_gated_simple::backprojectTemporalCausticReservoirsPass(Rende
     var["CB"]["gFrameCount"] = mFrameCount;
     var["CB"]["gScreenDims"] = mScreenRes;
 
-    var["GateCB"]["enableTimeGating"] = mOptions.enableTimeGating;
-    var["GateCB"]["gateValue"] = mOptions.gateValue;
-    var["GateCB"]["gateTol"] = mOptions.gateTolerance;
+    setGatingData(var);
 
     var["gLightTraceHeadCounter"] = mpLightTraceHeadCounter;
     var["gLightTraceLinkedList"] = mpLightTraceLinkedList;
@@ -1362,9 +1354,7 @@ void ReSTIR_FG_Plus_gated_simple::shiftCameraPathPass(RenderContext* pRenderCont
         var["CB"]["gJacobianDistanceThreshold"] = mOptions.jacobianDistanceThreshold;
         var["CB"]["gNeeSelectProbabilites"] = mNeeLightSelectProb;
 
-        var["GateCB"]["enableTimeGating"] = mOptions.enableTimeGating;
-        var["GateCB"]["gateValue"] = mOptions.gateValue;
-        var["GateCB"]["gateTol"] = mOptions.gateTolerance;
+        setGatingData(var);
 
         var["ShiftCB"]["gNumResamplingPass"] = numPass;
         var["ShiftCB"]["gSpatialSampleRadius"] = mOptions.pathSpatialResamplingRadius;
@@ -1545,6 +1535,13 @@ DefineList ReSTIR_FG_Plus_gated_simple::getMaterialDefines()
     defines.add("EVAL_DELTA_PDFS", mOptions.evaluateDeltaPDFs ? "1" : "0");
     defines.add("DIFF_CLASS_USE_LOBES", std::to_string(mOptions.diffuseClassificationBSDFLobes));
     return defines;
+}
+
+void ReSTIR_FG_Plus_gated_simple::setGatingData(ShaderVar var)
+{
+    var["Gate"]["enableTimeGating"] = mOptions.enableTimeGating;
+    var["Gate"]["gateValue"] = mOptions.gateValue;
+    var["Gate"]["gateTol"] = mOptions.gateTolerance;
 }
 
 void ReSTIR_FG_Plus_gated_simple::RayTraceProgramHelper::initProgramVars(

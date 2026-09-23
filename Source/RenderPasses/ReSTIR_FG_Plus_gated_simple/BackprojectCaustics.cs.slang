@@ -5,6 +5,7 @@ import Scene.RaytracingInline;
 import Utils.Sampling.SampleGenerator;
 import Utils.Color.ColorHelpers;
 import StructsAndHelpers;
+import TimeGatingHelper;
 
 #ifndef BACKPROJECT_TMP_RESERVOIRS
 #define BACKPROJECT_TMP_RESERVOIRS 0
@@ -32,15 +33,6 @@ cbuffer CB
     uint2 gScreenDims;         //Screen dimensions
     float _pad;
 }
-
-cbuffer GateCB
-{
-    bool enableTimeGating;
-    float gateValue;
-    float gateTol;
-}
-
-static const Gate gate = Gate(gateValue, gateTol);
 
 static const uint kRNGNumPasses = RNG_NUM_PASSES;
 static const uint kMIHints = (uint)MaterialInstanceHints::AdjustShadingNormal;

@@ -11,6 +11,7 @@ import Rendering.Lights.EmissiveLightSampler;
 import Rendering.Lights.EmissiveLightSamplerHelpers;
 import StructsAndHelpers;
 import NextEventEstimationHelper;
+import TimeGatingHelper;
 //These resources are only needed for initial sample generation
 #if !IS_SHIFT
 import Rendering.RTXDI.RTXDI;
@@ -57,15 +58,6 @@ cbuffer ShiftCB
     float gSpatialSampleRadius;         // Spatial resample radius
 }
 #endif
-
-cbuffer GateCB
-{
-    bool enableTimeGating;
-    float gateValue;
-    float gateTol;
-}
-
-static const Gate gate = Gate(gateValue, gateTol);
 
 //Shared defines
 static const bool kAlphaTest = ENABLE_ALPHA_TEST;

@@ -156,6 +156,9 @@ private:
     // Get Materials defines
     DefineList getMaterialDefines();
 
+    // set stuff required for gating
+    void ReSTIR_FG_Plus_gated_simple::setGatingData(ShaderVar var);
+
     //
     // Pointers
     //
