@@ -880,6 +880,8 @@ void ReSTIR_FG_Plus_gated_simple::backprojectCausticsPass(RenderContext* pRender
     var["CB"]["gFrameCount"] = mFrameCount;
     var["CB"]["gScreenDims"] = mScreenRes;
 
+    setGatingData(var);
+
     var["gLightTraceHeadCounter"] = mpLightTraceHeadCounter;
     var["gLightTraceLinkedList"] = mpLightTraceLinkedList;
     var["gPhotonData"] = mpPhotonData[1]; // Caustic photon data
