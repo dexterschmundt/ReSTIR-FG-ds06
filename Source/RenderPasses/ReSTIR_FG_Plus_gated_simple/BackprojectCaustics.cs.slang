@@ -99,9 +99,6 @@ void initializeCausticReservoir(const uint2 pixel)
                 continue;
         }
 
-        
-        //////////////////// NEXT STEP: do GateHelper file and addGateVars to simplify usage of shared code, implement enabling gating via defines, and fix this bullshi
-
         // Eval BSDF, targetFunction and reservoir weight
         const float3 bsdf = mi.eval(sd, directionToCamera, sg);
         float targetFunction = luminance(photonData.flux * bsdf);

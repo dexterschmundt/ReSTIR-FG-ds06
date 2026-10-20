@@ -7,6 +7,7 @@ import Utils.Color.ColorHelpers;
 import Rendering.RTXDI.RTXDI;
 import Rendering.PhotonGuiding.PhotonGuiding;
 import StructsAndHelpers;
+import TimeGatingHelper;
 
 Texture2D<PackedHitInfo> gVBuffer;
 Texture2D<float4> gView;
@@ -81,6 +82,15 @@ void main(uint2 pixel: SV_DispatchThreadID)
 
         // Add Emissive
         float3 directLight = bsdfProperties.emission;
+
+        // In the case of emmissive primary hit:
+        // Check if time gate is passed
+        if (enableTimeGating) {
+            // float lightPathTravelDistance = 0.0f; // cam path went until emissive hit in this case
+            float camPathTravelDistance = length(gScene.camera.getPosition() - sd.posW);
+            if (!gate.pass(/*lightPathTravelDistance + */ camPathTravelDistance))
+                directLight = float3(0.0); // take emission away if it doesnt pass the gate
+        }
 
         //Eval ReSTIR DI
         float dist = 1.f;

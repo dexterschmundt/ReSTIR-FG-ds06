@@ -198,7 +198,7 @@ void ReSTIR_FG_Plus_gated_simple::renderUI(Gui::Widgets& widget)
         mClearReservoir = group.button("Clear Reservoirs");
     }
 
-    if (auto group = widget.group("Time Gating Options"))
+    if (auto group = widget.group("Time Gating"))
     {
         group.checkbox("Enable Time Gating", mOptions.enableTimeGating);
         group.tooltip("Allows only Paths with a certain total length and thereby allows time-of-flight simulations");
@@ -688,6 +688,7 @@ void ReSTIR_FG_Plus_gated_simple::prepareResources(RenderContext* pRenderContext
 // passes are defined in same order as they are executed
 
 // executes TracePhotons.rt.slang with IS_SHIFT = false
+// IN SHORT: Scatters the Photons everything is based on
 // Traces Photons from light source and stores them in caustic and World Phpotpn Buffers. Additionally stores pointers to directly Visible Caustic Photons in Backproject linked list
 // Stored Photons carry their total travel Distance for gating
 void ReSTIR_FG_Plus_gated_simple::tracePhotonsPass(RenderContext* pRenderContext, const RenderData& renderData)
@@ -838,6 +839,7 @@ void ReSTIR_FG_Plus_gated_simple::tracePhotonsPass(RenderContext* pRenderContext
 }
 
 // executes BackprojectCaustics.cs.slang with BACKPROJECT_TMP_RESERVOIRS = false
+// IN SHORT: does the caustic Backprojections for ED-prefix paths
 // Fills gCausticReservoir by adding Photons from linked list for pixel to Caustic reservoir of pixel, clears linked list after that
 // doesnt add Photons that dont pass gate
 void ReSTIR_FG_Plus_gated_simple::backprojectCausticsPass(RenderContext* pRenderContext, const RenderData& renderData)
@@ -902,6 +904,7 @@ void ReSTIR_FG_Plus_gated_simple::backprojectCausticsPass(RenderContext* pRender
 
 // executes TraceCamera.rt.slang with IS_SHIFT = false
 // TODO: make Environment Maps be gated too (in whatever way that makes sense, probably just ignoring them since infinite distance)
+// PhotonRIS/Radiance Estimate, NEE and Emissive hits are gated now
 void ReSTIR_FG_Plus_gated_simple::traceCameraPass(RenderContext* pRenderContext, const RenderData& renderData)
 {
     FALCOR_PROFILE(pRenderContext, "InitialSamples");
@@ -1516,6 +1519,9 @@ void ReSTIR_FG_Plus_gated_simple::evaluateReservoirsPass(RenderContext* pRenderC
     var["gVBufferPrev"] = mpVBufferPrev;
     var["gViewPrev"] = mpViewPrev;
     var["gOutColor"] = renderData[kOutputColor]->asTexture();
+
+    // Gating
+    setGatingData(var);
 
     // Execute
     const uint2 targetDim = renderData.getDefaultTextureDims();

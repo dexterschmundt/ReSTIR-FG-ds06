@@ -433,8 +433,16 @@ void tracePath(RayDesc ray, inout PathData pd, inout PathReservoir pathReservoir
         validEmissiveHitSample &= pd.pathLength > 1 && pd.specularPath || (pd.pathLength == 1 && pd.deltaPath) || pd.lastHitNee;
         if (kIsShift)
             validEmissiveHitSample &= pathReservoir.flags.isEmissiveHit && (pd.pathLength == pathReservoir.pathLength);
-        if (validEmissiveHitSample) //TODO: make this abide gate
+        if (validEmissiveHitSample)
         {
+            // Check if time gate is passed
+            if (enableTimeGating) {
+                // float lightPathTravelDistance = 0.0f; // cam path went until emissive hit in this case
+                float camPathTravelDistance = pd.totalTravelDist;
+                if (!gate.pass(/*lightPathTravelDistance + */ camPathTravelDistance))
+                    break; //will be called anyway after handling of emissive hit, this way handling and therefore respecting this hit is skipped
+            }
+
             float misWeight = 1.0;
             float neeEmissiveProbability = gNeeSelectProbabilites[kNeeLightTypeEmissive];
             if (neeEmissiveProbability > 0 && pd.lastHitNee)
@@ -468,7 +476,8 @@ void tracePath(RayDesc ray, inout PathData pd, inout PathReservoir pathReservoir
 
         //Stop on emissive hits, as reflection is undefined
         if (hitIsEmissive)
-            break;
+            break; // is called before handling of emissive hit if gate test isnt passed
+            // !! if you want to do something different here, you also need to do it in the gate !! (bad programming i know, but i cant be bothered rn)
 
         // If the surface is diffuse, do radiance estimate and evaluate NEE
         pd.lastHitNee = false; //Reset flag
@@ -582,7 +591,7 @@ void tracePath(RayDesc ray, inout PathData pd, inout PathReservoir pathReservoir
                 {
                     LightSample ls;
                     uint4 sgState = pd.sg.getState();
-                    float3 nee = nextEventEstimation(sd, mi, gNeeSelectProbabilites, ls, pd.sg);
+                    float3 nee = nextEventEstimation(sd, mi, pd.totalTravelDist, gNeeSelectProbabilites, ls, pd.sg);
                     if (addSampleToReservoir(pathReservoir, sampleNext1D(pd.sg), nee, pd.thp))
                     {
                         pathReservoir.jacobian = ls.pdf;

@@ -8,6 +8,7 @@ import Rendering.Lights.EmissiveLightSampler;
 import Rendering.Lights.EmissiveLightSamplerHelpers;
 import Rendering.Lights.EnvMapSampler;
 import StructsAndHelpers;
+import TimeGatingHelper;
 
 cbuffer Light {
     EmissiveLightSampler gEmissiveSampler;
@@ -117,11 +118,19 @@ bool generateAndSelectLightSample(ShadingData sd, float3 lightTypeSelectProbabil
     return valid;
 }
 
-float3 nextEventEstimation(ShadingData sd, IMaterialInstance mi, float3 lightTypeSelectProbability, out LightSample ls, inout SampleGenerator sg)
+float3 nextEventEstimation(ShadingData sd, IMaterialInstance mi, float travelDistance, float3 lightTypeSelectProbability, out LightSample ls, inout SampleGenerator sg)
 {
     ls = {};
     if(!generateAndSelectLightSample(sd, lightTypeSelectProbability, ls, sg))
         return float3(0);
+
+    // Check if time gate is passed
+    if (enableTimeGating) {
+        float lightPathTravelDistance = ls.distance;
+        float camPathTravelDistance = travelDistance;
+        if (!gate.pass(lightPathTravelDistance + camPathTravelDistance))
+            return float3(0); //sample gets rejected if gate isnt passed
+    }
 
     float3 bsdf = mi.eval(sd, ls.dir, sg);
 
