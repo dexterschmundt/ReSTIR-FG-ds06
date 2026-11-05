@@ -687,11 +687,11 @@ void ReSTIR_FG_Plus_gated_simple::prepareResources(RenderContext* pRenderContext
 
 // passes are defined in same order as they are executed
 
+
+//--------------passes that do the initial sampling--------------------
+
 // executes TracePhotons.rt.slang with IS_SHIFT = false
-// IN SHORT: Scatters the Photons everything is based on
-// Traces Photons from light source and stores them in caustic and World Phpotpn Buffers. Additionally stores pointers to directly Visible Caustic Photons in Backproject linked list
-// Stored Photons carry their total travel Distance for gating
-void ReSTIR_FG_Plus_gated_simple::tracePhotonsPass(RenderContext* pRenderContext, const RenderData& renderData)
+void ReSTIR_FG_Plus_gated_simple::tracePhotonsPass(RenderContext * pRenderContext, const RenderData& renderData)
 {
     FALCOR_PROFILE(pRenderContext, "TracePhotons");
 
@@ -831,18 +831,20 @@ void ReSTIR_FG_Plus_gated_simple::tracePhotonsPass(RenderContext* pRenderContext
 
     // Build acceleration structure
     uint2 currentPhotons = mFrameCount > 0 ? uint2(float2(mPhotonCountUI) * mOptions.photonASBuildBufferOverestimate)
-                                           : uint2(mOptions.photonBufferSizeGlobal, mOptions.photonBufferSizeCaustic);
+                                            : uint2(mOptions.photonBufferSizeGlobal, mOptions.photonBufferSizeCaustic);
     std::vector<uint64_t> photonBuildSize = {
         std::min(mOptions.photonBufferSizeGlobal, currentPhotons[0]), std::min(mOptions.photonBufferSizeCaustic, currentPhotons[1])
     };
     mpPhotonAS->update(pRenderContext, photonBuildSize);
 }
+// IN SHORT: Scatters the Photons everything is based on
+// Traces Photons from light source and stores them in caustic and World Phpotpn Buffers. Additionally stores pointers to directly
+// Visible Caustic Photons in Backproject linked list
+// 
+// CHANGES FOR GATING: Stored Photons carry their total travel Distance for gating
 
 // executes BackprojectCaustics.cs.slang with BACKPROJECT_TMP_RESERVOIRS = false
-// IN SHORT: does the caustic Backprojections for ED-prefix paths
-// Fills gCausticReservoir by adding Photons from linked list for pixel to Caustic reservoir of pixel, clears linked list after that
-// doesnt add Photons that dont pass gate
-void ReSTIR_FG_Plus_gated_simple::backprojectCausticsPass(RenderContext* pRenderContext, const RenderData& renderData)
+void ReSTIR_FG_Plus_gated_simple::backprojectCausticsPass(RenderContext * pRenderContext, const RenderData& renderData)
 {
     FALCOR_PROFILE(pRenderContext, "BackprojectCaustics");
 
@@ -901,11 +903,13 @@ void ReSTIR_FG_Plus_gated_simple::backprojectCausticsPass(RenderContext* pRender
 
     pRenderContext->uavBarrier(mpLightTraceHeadCounter.get());
 }
+// IN SHORT: initial Sampling for caustic reservoir
+// Fills gCausticReservoir by adding Photons from linked list for pixel to Caustic reservoir of pixel, clears linked list after that
+//
+// CHANGES FOR GATING: doesnt add Photons that dont pass gate
 
 // executes TraceCamera.rt.slang with IS_SHIFT = false
-// TODO: make Environment Maps be gated too (in whatever way that makes sense, probably just ignoring them since infinite distance)
-// PhotonRIS/Radiance Estimate, NEE and Emissive hits are gated now
-void ReSTIR_FG_Plus_gated_simple::traceCameraPass(RenderContext* pRenderContext, const RenderData& renderData)
+void ReSTIR_FG_Plus_gated_simple::traceCameraPass(RenderContext * pRenderContext, const RenderData& renderData)
 {
     FALCOR_PROFILE(pRenderContext, "InitialSamples");
 
@@ -996,6 +1000,18 @@ void ReSTIR_FG_Plus_gated_simple::traceCameraPass(RenderContext* pRenderContext,
     // Dispatch Shader
     mpScene->raytrace(pRenderContext, mTraceCameraPass.pProgram.get(), mTraceCameraPass.pVars, uint3(mScreenRes, 1));
 }
+// IN SHORT: initial sampling for path reservoir
+// traces path from primary hit, if primary hit is specular then it bounces until first diffuse hit, then does final gather ray (and the global
+// Radiance estimate/photonRIS that comes with it), and if specular bounces were done also NEE and a caustic radiance estimate at first
+// diffuse hit
+// 
+// CHANGES FOR GATING: PhotonRIS/Radiance Estimate, NEE and Emissive hits are gated now
+// TODO: make Environment Maps be gated too (in whatever way that makes sense, probably just ignoring them since infinite distance)
+// TODO: make NEE happen even if no specular bounces happened so ReSTIR DI can be omitted
+
+
+
+//----------------passes that do the caustic resampling-----------------
 
 // executes TracePhotons.rt.slang with IS_SHIFT / IS_SHIFT_CAUSTIC = true
 void ReSTIR_FG_Plus_gated_simple::shiftCausticPathPass(RenderContext* pRenderContext, const RenderData& renderData)
@@ -1084,6 +1100,11 @@ void ReSTIR_FG_Plus_gated_simple::shiftCausticPathPass(RenderContext* pRenderCon
         pRenderContext, mShiftCausticPathPass.pProgram.get(), mShiftCausticPathPass.pVars, uint3(mScreenRes.x, mScreenRes.y, 1)
     );
 }
+// IN SHORT: shifts the caustics in last frame reservoirs to current frame pixels
+// shift is done by validating the paths and checking if photon sample that makes the reservoir is still in collection radius of current pixels
+//
+// TODO: make sure that description i pulled from my fingers is accurate haha
+// TODO: make sure shift is gated
 
 // executes BackprojectCaustics.cs.slang with BACKPROJECT_TMP_RESERVOIRS = true
 void ReSTIR_FG_Plus_gated_simple::backprojectTemporalCausticReservoirsPass(RenderContext* pRenderContext, const RenderData& renderData)
@@ -1208,6 +1229,13 @@ void ReSTIR_FG_Plus_gated_simple::resampleReservoirCausticPass(RenderContext* pR
 
     pRenderContext->uavBarrier(mpLightTraceHeadCounter.get());
 }
+//} // namespace causticResampling
+
+
+
+
+
+//-----------------passes that do the path resampling------------------
 
 // executes TracePhotons.rt.slang with IS_SHIFT / IS_SHIFT_PATH = true
 void ReSTIR_FG_Plus_gated_simple::shiftPhotonPathPass(RenderContext* pRenderContext, const RenderData& renderData)
@@ -1331,7 +1359,9 @@ void ReSTIR_FG_Plus_gated_simple::shiftCameraPathPass(RenderContext* pRenderCont
 
             if (mpScene->hasGeometryType(Scene::GeometryType::TriangleMesh))
             {
-                sbt->setHitGroup(0, mpScene->getGeometryIDs(Scene::GeometryType::TriangleMesh), desc.addHitGroup("closestHit", "anyHit"));
+                sbt->setHitGroup(
+                    0, mpScene->getGeometryIDs(Scene::GeometryType::TriangleMesh), desc.addHitGroup("closestHit", "anyHit")
+                );
             }
 
             DefineList defines = {};
@@ -1452,6 +1482,10 @@ void ReSTIR_FG_Plus_gated_simple::resampleReservoirsPass(RenderContext* pRenderC
     FALCOR_ASSERT(targetDim.x > 0 && targetDim.y > 0);
     mpResampleReservoirPass->execute(pRenderContext, uint3(targetDim, 1));
 }
+//} // namespace pathResampling
+
+
+//----------------passes that evaluate all the reservoirs-----------------
 
 // executes EvaluateReservoirs.cs.slang
 void ReSTIR_FG_Plus_gated_simple::evaluateReservoirsPass(RenderContext* pRenderContext, const RenderData& renderData)
@@ -1528,6 +1562,9 @@ void ReSTIR_FG_Plus_gated_simple::evaluateReservoirsPass(RenderContext* pRenderC
     FALCOR_ASSERT(targetDim.x > 0 && targetDim.y > 0);
     mpEvaluateReservoirsPass->execute(pRenderContext, uint3(targetDim, 1));
 }
+// IN SHORT: evaluates the reservoirs and emission of primary hit and produces a final color thereby
+//
+// CHANGES FOR GATING: emission of primary hit is gated now
 
 
 
