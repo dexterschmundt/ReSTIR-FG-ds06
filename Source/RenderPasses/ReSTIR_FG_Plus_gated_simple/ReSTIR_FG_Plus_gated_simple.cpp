@@ -841,7 +841,7 @@ void ReSTIR_FG_Plus_gated_simple::tracePhotonsPass(RenderContext * pRenderContex
 // Traces Photons from light source and stores them in caustic and World Phpotpn Buffers. Additionally stores pointers to directly
 // Visible Caustic Photons in Backproject linked list
 // 
-// CHANGES FOR GATING: Stored Photons carry their total travel Distance for gating
+// CHANGES FOR GATING: Stored Photons carry their total travel Distance for gating (travelDist is part of photon struct, which is the type getting stored in PhotonData)
 
 // executes BackprojectCaustics.cs.slang with BACKPROJECT_TMP_RESERVOIRS = false
 void ReSTIR_FG_Plus_gated_simple::backprojectCausticsPass(RenderContext * pRenderContext, const RenderData& renderData)
