@@ -795,6 +795,8 @@ void ReSTIR_FG_Plus_gated_simple::tracePhotonsPass(RenderContext * pRenderContex
     var["CB"]["gMixedLightsAnalyticProbability"] = mOptions.photonMixedLightRatio;
     var["CB"]["gNormalizedPixelDiagonal"] = mApproximatePixelDiagonal;
 
+    setGatingData(var);
+
     // Output Buffers
     for (uint32_t i = 0; i < 2; i++)
     {
@@ -839,9 +841,12 @@ void ReSTIR_FG_Plus_gated_simple::tracePhotonsPass(RenderContext * pRenderContex
 }
 // IN SHORT: Scatters the Photons everything is based on
 // Traces Photons from light source and stores them in caustic and World Phpotpn Buffers. Additionally stores pointers to directly
-// Visible Caustic Photons in Backproject linked list
+// Visible Caustic Photons in Backproject linked list (using structsAndHelpers::causticBackProjection)
 // 
 // CHANGES FOR GATING: Stored Photons carry their total travel Distance for gating (travelDist is part of photon struct, which is the type getting stored in PhotonData)
+//                      additionally Backprojected Photons (for caustic Backprojection) that doesnt pass gate get excluded (possible because for them the entire 
+//                      travel distance is already known at this point, unlike stored photons that may encounter different camera path travel distances).
+//                      Gating for Backprojection is implemented in causticPhotonBackprojection of StructsAndHelpers.slang.
 
 // executes BackprojectCaustics.cs.slang with BACKPROJECT_TMP_RESERVOIRS = false
 void ReSTIR_FG_Plus_gated_simple::backprojectCausticsPass(RenderContext * pRenderContext, const RenderData& renderData)
@@ -906,7 +911,7 @@ void ReSTIR_FG_Plus_gated_simple::backprojectCausticsPass(RenderContext * pRende
 // IN SHORT: initial Sampling for caustic reservoir
 // Fills gCausticReservoir by adding Photons from linked list for pixel to Caustic reservoir of pixel, clears linked list after that
 //
-// CHANGES FOR GATING: doesnt add Photons that dont pass gate
+// CHANGES FOR GATING: none, gating for caustic Backprojectgtions already finished in tracePhotonsPass
 
 // executes TraceCamera.rt.slang with IS_SHIFT = false
 void ReSTIR_FG_Plus_gated_simple::traceCameraPass(RenderContext * pRenderContext, const RenderData& renderData)
@@ -1005,7 +1010,7 @@ void ReSTIR_FG_Plus_gated_simple::traceCameraPass(RenderContext * pRenderContext
 // Radiance estimate/photonRIS that comes with it), and if specular bounces were done also NEE and a caustic radiance estimate at first
 // diffuse hit
 // 
-// CHANGES FOR GATING: PhotonRIS/Radiance Estimate, NEE and Emissive hits are gated now
+// CHANGES FOR GATING: PhotonRIS/Radiance Estimate, NEE and Emissive hits are gated 
 // TODO: make Environment Maps be gated too (in whatever way that makes sense, probably just ignoring them since infinite distance)
 // TODO: make NEE happen even if no specular bounces happened so ReSTIR DI can be omitted
 
@@ -1095,16 +1100,21 @@ void ReSTIR_FG_Plus_gated_simple::shiftCausticPathPass(RenderContext* pRenderCon
     if (mOptions.usePhotonGuiding)
         var["gCausticReservoirGuidingData"] = mpPhotonGuidingCausticReservoir[(mFrameCount + 1) % 2]; // Temporal guiding data
 
+    setGatingData(var);
+
     // Dispatch raytracing shader
     mpScene->raytrace(
         pRenderContext, mShiftCausticPathPass.pProgram.get(), mShiftCausticPathPass.pVars, uint3(mScreenRes.x, mScreenRes.y, 1)
     );
 }
 // IN SHORT: shifts the caustics in last frame reservoirs to current frame pixels
-// shift is done by validating the paths and checking if photon sample that makes the reservoir is still in collection radius of current pixels
+// shift is done by validating/retracing the paths of photon samples in reservoirs of previous frame, then backprojecting them into current camera
+// and adding the reservoirs to the linked list (like tracePhotonsPass)
 //
-// TODO: make sure that description i pulled from my fingers is accurate haha
-// TODO: make sure shift is gated
+// CHANGES FOR GATING: None in this shader, but
+//                      reservoir of previous frame doesnt get added if photon inside doesnt pass the gate, implemented by same change
+//                      in causticPhotonBackprojection of StructsAndHelpers.slang that gates backprojection for tracePhotonsPass
+//
 
 // executes BackprojectCaustics.cs.slang with BACKPROJECT_TMP_RESERVOIRS = true
 void ReSTIR_FG_Plus_gated_simple::backprojectTemporalCausticReservoirsPass(RenderContext* pRenderContext, const RenderData& renderData)
@@ -1160,6 +1170,14 @@ void ReSTIR_FG_Plus_gated_simple::backprojectTemporalCausticReservoirsPass(Rende
 
     pRenderContext->uavBarrier(mpLightTraceHeadCounter.get());
 }
+// IN SHORT: same as shiftCausticsPass but without validation
+// replaces shiftCausticPathPass for scenes where Photon paths stay valid because scene is static. skips validation and backprojects photon samples
+// of reservoirs of last frame into current cam and stores them in linked list
+//
+// CHANGES FOR GATING: None in this shader, but
+//                      reservoir of previous frame doesnt get added if photon inside doesnt pass the gate, implemented by same change
+//                      in causticPhotonBackprojection of StructsAndHelpers.slang that gates backprojection for tracePhotonsPass
+//
 
 // executes ResampleReservoirCaustic.cs.slang
 void ReSTIR_FG_Plus_gated_simple::resampleReservoirCausticPass(RenderContext* pRenderContext, const RenderData& renderData)
@@ -1207,6 +1225,8 @@ void ReSTIR_FG_Plus_gated_simple::resampleReservoirCausticPass(RenderContext* pR
     var["CB"]["gPrevCamViewProjection"] = mTemporalCameraViewProjection;
     var["CB"]["gPrevCamForward"] = mTemporalCameraForward;
 
+    setGatingData(var);
+
     // Input Resources
     var["gMVec"] = renderData[kInputMotionVectors]->asTexture();
     var["gCausticReservoirPrev"] = mpCausticReservoir[(mFrameCount + 1) % 2];
@@ -1229,7 +1249,11 @@ void ReSTIR_FG_Plus_gated_simple::resampleReservoirCausticPass(RenderContext* pR
 
     pRenderContext->uavBarrier(mpLightTraceHeadCounter.get());
 }
-//} // namespace causticResampling
+// IN SHORT: does the reservoir resampling for the caustic samples
+// current sample gets backprojected into last frame (it gets looked up at which pixel it was in the last frame) to calculate some of that
+// funny jacobian stuff, then the reservoirs in the linked list are walked trough and combined with the current reservoir
+//
+// CHANGES FOR GATING: None, linked list entries are already gated trough change in causticPhotonBackprojection
 
 
 
@@ -1312,6 +1336,8 @@ void ReSTIR_FG_Plus_gated_simple::shiftPhotonPathPass(RenderContext* pRenderCont
     var["CB"]["gMixedLightsAnalyticProbability"] = mOptions.photonMixedLightRatio;
     var["CB"]["gNormalizedPixelDiagonal"] = mApproximatePixelDiagonal;
 
+    setGatingData(var);
+
     // Output Buffers
     var["gPathReservoir"] = mpPathReservoir[(mReservoirIndex + 1) % 2]; // Temporal Reservoir
 
@@ -1320,8 +1346,11 @@ void ReSTIR_FG_Plus_gated_simple::shiftPhotonPathPass(RenderContext* pRenderCont
         pRenderContext, mShiftPhotonPathPass.pProgram.get(), mShiftPhotonPathPass.pVars, uint3(mScreenRes.x, mScreenRes.y, 1)
     );
 }
+// IN SHORT: validates reservoir contents for the case that the reservoir content is a photon sample
+// validate/retraces the reservoir photon sample, which is the case if it is a caustic radiance estimate (remember: used intead of backprojection for ES*D paths) 7
+// or for FG radiance estimates
 
-// executes TraceCamera.rt.slang with IS_SHIFT = true and IS_SHIFT_CURRENT once for 1 and once for 0 (two shader dispatches)
+// executes TraceCamera.rt.slang with IS_SHIFT = true and IS_SHIFT_CURRENT once for 1 and once for 0 in that order (two shader dispatches)
 void ReSTIR_FG_Plus_gated_simple::shiftCameraPathPass(RenderContext* pRenderContext, const RenderData& renderData, uint numPass)
 {
     FALCOR_PROFILE(pRenderContext, "ShiftPathReservoir");
@@ -1463,6 +1492,8 @@ void ReSTIR_FG_Plus_gated_simple::resampleReservoirsPass(RenderContext* pRenderC
     var["CB"]["gJacobianDistanceThreshold"] = mOptions.jacobianDistanceThreshold;
     var["CB"]["gRelativeDepthThreshold"] = mOptions.relativeDepthThreshold;
     var["CB"]["gNumResamplingPass"] = numPass;
+
+    setGatingData(var);
 
     // Input Resources
     var["gVBuffer"] = renderData[kInputVBuffer]->asTexture();

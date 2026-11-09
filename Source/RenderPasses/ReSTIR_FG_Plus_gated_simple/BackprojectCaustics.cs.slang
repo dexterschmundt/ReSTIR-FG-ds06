@@ -5,7 +5,6 @@ import Scene.RaytracingInline;
 import Utils.Sampling.SampleGenerator;
 import Utils.Color.ColorHelpers;
 import StructsAndHelpers;
-import TimeGatingHelper;
 
 #ifndef BACKPROJECT_TMP_RESERVOIRS
 #define BACKPROJECT_TMP_RESERVOIRS 0
@@ -53,7 +52,7 @@ void backprojectTemporalCausticReservoirs(const uint2 pixel)
     ShadingData sd = loadShadingData(hit, r.sampleSurfaceView, lod);
 
     // Backproject Reservoir to camera lens
-    causticPhotonBackprojection(sd, gScreenDims, reservoirIndex, gLightTraceHeadCounter, gLightTraceLinkedList);
+    causticPhotonBackprojection(sd, r.travelDistancePhoton, gScreenDims, reservoirIndex, gLightTraceHeadCounter, gLightTraceLinkedList);
 }
 #else // BACKPROJECT_TMP_RESERVOIRS
 
@@ -91,13 +90,7 @@ void initializeCausticReservoir(const uint2 pixel)
         const float3 camForward = normalize(gScene.camera.data.cameraW);
         const float backprojectJacobian = getBackprojectJacobian(gScreenDims.y, directionToCamera, distanceToCamera);
 
-        // Check if time gate is passed
-        if (enableTimeGating) {
-            float lightPathLength = photonData.travelDistance;
-            float camPathLength = distanceToCamera;
-            if (!gate.pass(lightPathLength + camPathLength))
-                continue;
-        }
+        // no need to check time gating, because every Photon in linked list is already gated
 
         // Eval BSDF, targetFunction and reservoir weight
         const float3 bsdf = mi.eval(sd, directionToCamera, sg);

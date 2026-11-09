@@ -341,7 +341,7 @@ void rayGen()
         let mi = gScene.materials.getMaterialInstance(sd, lod, hints);
         let bsdfProperties = mi.getProperties(sd);
 
-        // Update Photon Travel Distance
+        // Update Photon Travel Distance required for gating
         photon.travelDistance += length(sd.posW - ray.Origin);
 
         // Store Photon
@@ -374,7 +374,7 @@ void rayGen()
                     gPhotonAABB[photonTypeIdx][photonInsertIndex] = photonAABB;
                     gPhotonData[photonTypeIdx][photonInsertIndex] = photon;
                     if (photonType == PhotonType::Caustic) {
-                        if (causticPhotonBackprojection(sd, gScreenDimensions, photonInsertIndex, gLightTraceHeadCounter, gLightTraceLinkedList))
+                        if (causticPhotonBackprojection(sd, photon.travelDistance, gScreenDimensions, photonInsertIndex, gLightTraceHeadCounter, gLightTraceLinkedList))
                             gPhotonHitInfo[photonInsertIndex] = hit.getData();
                     }
                     #if USE_PHOTON_GUIDING
@@ -415,12 +415,13 @@ void rayGen()
                 if (storeAsCaustic)
                 {
                     const int bufferIndex = index2Dto1D(pixel, dispatchDims.x);
-                    if (causticPhotonBackprojection(sd, gScreenDimensions, bufferIndex, gLightTraceHeadCounter, gLightTraceLinkedList))
+                    if (causticPhotonBackprojection(sd, photon.travelDistance ,gScreenDimensions, bufferIndex, gLightTraceHeadCounter, gLightTraceLinkedList)) //uses retraced travel distance for gating
                     {
                         causticReservoir.sampleSurface = hit.getData();
                         causticReservoir.sampleSurfaceView = photon.dir;
                         causticReservoir.photonRadiance = photon.flux;
 
+                        // data for gating, only required for static case where backprojectTemporalCausticReservoirsPass is done
                         causticReservoir.travelDistanceTotal = photon.TravelDistance;
                         causticReservoir.distanceToCamera = length(gScene.camera.getPosition() - sd.posW);
 

@@ -1,8 +1,6 @@
 #pragma once
 #include "Utils/Math/MathConstants.slangh"
 
-import StructsAndHelpers;
-
 cbuffer Gate
 {
     bool enableTimeGating;

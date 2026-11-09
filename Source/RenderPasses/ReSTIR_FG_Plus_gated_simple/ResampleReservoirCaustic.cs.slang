@@ -117,7 +117,7 @@ void main(uint2 pixel: SV_DispatchThreadID)
             HitInfo hit = HitInfo(rPrev.sampleSurface);
             ShadingData sd = loadShadingData(hit, rPrev.sampleSurfaceView, lod);
 
-            // MIS weight for current (Visibility was already tested in a previous pass)
+            // MIS weight for current (Visibility was already tested in a previous pass, namely shiftCausticPathPass)
             float3 toCurrentCam = currentCamPosW - sd.posW;
             float distToCurrentCam = length(toCurrentCam);
             toCurrentCam /= distToCurrentCam;

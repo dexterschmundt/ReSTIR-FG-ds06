@@ -64,7 +64,7 @@ bool resampleReservoir(inout PathReservoir reservoir, PathReservoir rCurr, PathR
         //Calc MIS weight
         float mis = 1;
         // For path >0, shift is already calculated
-        if (rCurr.pathLength > 0) {
+        if (rCurr.pathLength > 0 || rCurr.flags.isDirectNEE) {
             float4 shiftData = gShiftData[pixel]; // xyz = F, w = jacobian
             if (shiftData.w > 0) {
                 float3 shiftedF = shiftData.xyz * (shiftData.w / rCurr.jacobian);
@@ -117,7 +117,7 @@ bool resampleReservoir(inout PathReservoir reservoir, PathReservoir rCurr, PathR
     {
         float jacobian = 0.0;
         // For path >0, shift is already calculated
-        if (rOther.pathLength > 0) {
+        if (rOther.pathLength > 0 || rOther.flags.isDirectNEE) {
             float4 shiftData = gShiftDataOther[pixel]; // xyz = F, w = jacobian
 
             if (shiftData.w > 0)

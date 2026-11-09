@@ -156,7 +156,7 @@ private:
     // Get Materials defines
     DefineList getMaterialDefines();
 
-    // set stuff required for gating
+    // provide all the data required for gating to a shaderVar, required in every shader because Structs and helpers requires it. Kind of abused the name a bit there...
     void ReSTIR_FG_Plus_gated_simple::setGatingData(ShaderVar var);
 
     //

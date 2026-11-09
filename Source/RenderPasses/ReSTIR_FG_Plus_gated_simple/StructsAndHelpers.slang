@@ -6,6 +6,7 @@ import Utils.Color.ColorHelpers;
 import Utils.Math.MathHelpers;
 import Rendering.Materials.IsotropicGGX;
 import Rendering.Materials.Fresnel;
+import TimeGatingHelper;
 
 static const float kShadowRayEpsilon = 0.98;
 static const uint kSplattingGlobalCounterElement = 0; //Index for the platting global counter, that counts the total number of elements
@@ -30,6 +31,7 @@ enum ReservoirPathFlags : uint {
     isRadianceEstimate = 0x200000,         // 1<<21
     isCaustic = 0x400000,                  // 1<<22
     isNEE = 0x800000,                      // 1<<23
+    isDirectNEE = 0x1000000,               // 1<<24
 }
 
 //
@@ -227,6 +229,14 @@ struct ReservoirFlags {
             flags |= (newValue ? (uint)ReservoirPathFlags::isNEE : 0);
         }
     }
+
+    property bool isDirectNEE {
+        get { return (flags & (uint)ReservoirPathFlags::isDirectNEE) > 0; }
+        set {
+            flags &= ~(uint)ReservoirPathFlags::isDirectNEE; // Clear bit
+            flags |= (newValue ? (uint)ReservoirPathFlags::isDirectNEE : 0);
+        }
+    }
 }
 
 //Path Reservoir; Size: 96 Byte (24 floats)
@@ -324,6 +334,7 @@ struct CausticReservoir {
     float invPhotonScaleFactor;         // Light selection probability and number of light paths used to generate the photon
 
     // from here on not included in struct size
+    // data for gating, only required for static case where backprojectTemporalCausticReservoirsPass is done
     float travelDistancePhoton;       // total travel distance from light source to photon stored, used for gating. Doesnt account for 
     float distanceToCamera;           // Distance to camera to correctly gate backprojection. May be optimized at some point (hopefully it will because this is terrible)
     uint _pad2;                 // there has to be a better way
@@ -504,7 +515,7 @@ bool dispatchShadowRay(ShadingData sd, float3 toLight, float distanceToLight, bo
 }
 
 // Backprojects caustic photons (or Reservoirs) back into the camera lens and performs a visibility test
-bool causticPhotonBackprojection(ShadingData sd, uint2 screenDims, int bufferIndex, RWTexture2D<int> headCounter, RWStructuredBuffer<int> linkedList)
+bool causticPhotonBackprojection(ShadingData sd, float photonTravelDistance, uint2 screenDims, int bufferIndex, RWTexture2D<int> headCounter, RWStructuredBuffer<int> linkedList)
 {
     // Check if position is in camera view
     float4 screenPos = mul(gScene.camera.data.viewProjMatNoJitter, float4(sd.posW, 1));
@@ -520,6 +531,18 @@ bool causticPhotonBackprojection(ShadingData sd, uint2 screenDims, int bufferInd
     float distanceToCamera = length(directionToCamera);
     directionToCamera /= distanceToCamera;
 
+    // check if gate is passed (before ray query to maybe save the trouble of it)
+    if (enableTimeGating) {
+        float lightPathLength = photonTravelDistance;
+        float camPathLength = distanceToCamera;
+        if (!gate.pass(lightPathLength + camPathLength))
+            return false; // if gate isnt passed, photon doesnt get added to linked list
+    }
+    // gating causticPhotonBackprojection should implicitely gate all caustics, because:
+    //      it gets only used on current camera since camera is hardcoded, so no danger of gating photons that shouldnt be gated
+    //      every caustic Backprojected PhotonSample passes trough the linked list, and therefore trough here, so every Photon that should be gated is gated
+
+    // do actual ray query
     float visRayDist = distanceToCamera - gScene.camera.data.nearZ; // Remove camera near
     if(!dispatchShadowRay(sd, directionToCamera, visRayDist, false))
         return false;

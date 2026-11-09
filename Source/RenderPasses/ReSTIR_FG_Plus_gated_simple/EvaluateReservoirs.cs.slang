@@ -93,6 +93,7 @@ void main(uint2 pixel: SV_DispatchThreadID)
         }
 
         //Eval ReSTIR DI
+        /*
         float dist = 1.f;
         float3 dir = {};
         float3 Li = {};
@@ -109,6 +110,7 @@ void main(uint2 pixel: SV_DispatchThreadID)
 
         if (!kDisableDirectLight)
             outColor += directLight;
+        */
 
         //Evaluate directly visible caustics
         float3 caustic = evaluateCausticReservoir(pixel, sg);

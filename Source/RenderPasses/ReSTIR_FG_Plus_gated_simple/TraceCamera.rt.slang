@@ -12,6 +12,7 @@ import Rendering.Lights.EmissiveLightSamplerHelpers;
 import StructsAndHelpers;
 import NextEventEstimationHelper;
 import TimeGatingHelper;
+
 //These resources are only needed for initial sample generation
 #if !IS_SHIFT
 import Rendering.RTXDI.RTXDI;
@@ -302,6 +303,27 @@ void photonRIS(ShadingData sd, IMaterialInstance mi, float3 N, bool collectOnlyC
     }
 }
 
+/* Add sample to reservoir
+    \param[inout] reservoir Reservoir to add the sample to.
+    \param[in] rand Random number in [0,1).
+    \param[in] rcThp Throughput after reconnection to light source.
+    \param[in] thp Throughput until the reconnection surface.
+    \return true if sample was selected as new representative sample
+*/
+bool addSampleToReservoir(inout PathReservoir reservoir, float rand, float3 radiance, float3 thp)
+{
+    float3 F = radiance * thp;
+    float w = luminance(F);
+    reservoir.weight += w;
+    bool selectOther = rand * reservoir.weight <= w;
+    if (selectOther) {
+        reservoir.F = F;
+        reservoir.fgRadiance = radiance;
+    }
+    return selectOther;
+}
+// i added this into this #if, i think its also only needed if no shift is done, works at least in veachAjar...
+
 #endif //!IS_SHIFT
 
 
@@ -335,26 +357,6 @@ bool sampleNewDirection(ShadingData sd, IMaterialInstance mi, inout PathData pd,
     }
   
     return validSample;
-}
-
-/* Add sample to reservoir
-    \param[inout] reservoir Reservoir to add the sample to.
-    \param[in] rand Random number in [0,1).
-    \param[in] rcThp Throughput after reconnection to light source.
-    \param[in] thp Throughput until the reconnection surface.
-    \return true if sample was selected as new representative sample
-*/
-bool addSampleToReservoir(inout PathReservoir reservoir, float rand, float3 radiance, float3 thp)
-{
-    float3 F = radiance * thp;
-    float w = luminance(F);
-    reservoir.weight += w;
-    bool selectOther = rand * reservoir.weight <= w;
-    if (selectOther) {
-        reservoir.F = F;
-        reservoir.fgRadiance = radiance;
-    }
-    return selectOther;
 }
 
 //Traces a path, starting from the first surface visible from camera
@@ -476,7 +478,7 @@ void tracePath(RayDesc ray, inout PathData pd, inout PathReservoir pathReservoir
 
         //Stop on emissive hits, as reflection is undefined
         if (hitIsEmissive)
-            break; // is called before handling of emissive hit if gate test isnt passed
+            break; // is breaked before handling of emissive hit in the case that gate test isnt passed
             // !! if you want to do something different here, you also need to do it in the gate !! (bad programming i know, but i cant be bothered rn)
 
         // If the surface is diffuse, do radiance estimate and evaluate NEE
