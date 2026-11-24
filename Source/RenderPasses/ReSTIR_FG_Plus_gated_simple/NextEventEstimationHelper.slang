@@ -126,7 +126,7 @@ float3 nextEventEstimation(ShadingData sd, IMaterialInstance mi, float travelDis
 
     // Check if time gate is passed
     if (enableTimeGating) {
-        float lightPathTravelDistance = ls.distance;
+        float lightPathTravelDistance = ls.distance; //seems to be the distance to the light sample from the point of sd
         float camPathTravelDistance = travelDistance;
         if (!gate.pass(lightPathTravelDistance + camPathTravelDistance))
             return float3(0); //sample gets rejected if gate isnt passed

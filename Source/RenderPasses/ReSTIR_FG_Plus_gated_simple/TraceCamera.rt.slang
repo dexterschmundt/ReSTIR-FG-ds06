@@ -303,6 +303,8 @@ void photonRIS(ShadingData sd, IMaterialInstance mi, float3 N, bool collectOnlyC
     }
 }
 
+#endif //!IS_SHIFT
+
 /* Add sample to reservoir
     \param[inout] reservoir Reservoir to add the sample to.
     \param[in] rand Random number in [0,1).
@@ -322,9 +324,58 @@ bool addSampleToReservoir(inout PathReservoir reservoir, float rand, float3 radi
     }
     return selectOther;
 }
-// i added this into this #if, i think its also only needed if no shift is done, works at least in veachAjar...
+// for every significant step (direct NEE / FG Radiance estimate / Caustic radiance estimate for first diffuse / NEE for first diffuse), this gets called.
+// Thereby all of it gets added to the reservoir and therefore to the output
 
-#endif //!IS_SHIFT
+// Next event estimation sample for direct light
+void addDirectLightNEE(ShadingData sd, IMaterialInstance mi, inout PathReservoir reservoir, inout SampleGenerator sg)
+{
+    LightSample ls;
+    uint4 sgState = sg.getState();
+    float distToCam = length(gScene.camera.getPosition() - sd.posW); //distance t
+    float3 nee = nextEventEstimation(sd, mi, distToCam, gNeeSelectProbabilites, ls, sg);
+    if (addSampleToReservoir(reservoir, sampleNext1D(sg), nee, float3(1.0)))
+    {
+        reservoir.jacobian = ls.pdf;
+        if (!ls.isInfiniteDistance) {
+            reservoir.jacobian *= abs(dot(ls.faceN, ls.dir)) / (ls.distance * ls.distance);
+        }
+        reservoir.sampleData = sgState;
+        uint flags = (uint)ReservoirPathFlags::hasNoReconnectionSurface | (uint)ReservoirPathFlags::isDirectNEE;
+        reservoir.flags.setReservoirPathFlags(flags);
+    }
+}
+
+void replayDirectLightNEE(ShadingData sd, IMaterialInstance mi, PathReservoir reservoir, inout float3 F, inout float jacobian)
+{
+    SampleGenerator sg = SampleGenerator(reservoir.sampleData); // Recreate sample generator
+    // Recreate light sampling
+    LightSample ls;
+    bool validLightSample = generateAndSelectLightSample(sd, gNeeSelectProbabilites, ls, sg);
+    if (validLightSample && ls.pdf > 0)
+    {
+        // Jacobian
+        jacobian = ls.pdf;
+        if (!ls.isInfiniteDistance) {
+            jacobian *= abs(dot(ls.faceN, ls.dir)) / (ls.distance * ls.distance);
+        }
+        // MIS
+        float misWeight = 1;
+        if (ls.type != kNeeLightTypeAnalytic) {
+            float scatterPdf = mi.evalPdf(sd, ls.dir);
+            misWeight = evalMIS(1.0, ls.pdf, 1.0, scatterPdf);
+        }
+
+        F = ls.Li * misWeight; // BSDF and thp is added later
+        if (any(F > 0))
+        {
+            float3 bsdf = mi.eval(sd, ls.dir, sg);
+            F *= bsdf;
+            if (!dispatchShadowRay(sd, ls.dir, ls.distance))
+                F = float3(0);
+        }
+    }
+}
 
 
 /* Samples new direction and sets flags
@@ -376,7 +427,7 @@ void tracePath(RayDesc ray, inout PathData pd, inout PathReservoir pathReservoir
         // Scene miss (evaluate enviroment map). Path Lengh == 1 is covered by ReSTIR DI except the primary hit is delta
         if (!hit.isValid())
         {
-            bool validEnvMapSample = (pd.pathLength > 1) || (pd.pathLength == 1 && pd.deltaPath);
+            bool validEnvMapSample = (pd.pathLength > 1) || (pd.pathLength == 1 && pd.deltaPath) || pd.lastHitNee;
             if (kIsShift) //Additionally check if reservoir took the same path
                 validEnvMapSample &= pathReservoir.flags.isEnvMapHit && (pd.pathLength == pathReservoir.pathLength);
             if (validEnvMapSample)
@@ -734,7 +785,7 @@ void shiftCameraReservoir()
 
     // When first hit is valid
     float4 shiftData = float4(0);
-    if (hitInfo.isValid() && pathReservoir.isValid() && pathReservoir.pathLength >= 1)
+    if (hitInfo.isValid() && pathReservoir.isValid() && (pathReservoir.pathLength >= 1 || pathReservoir.flags.isDirectNEE))
     {
         //Init Path Data struct
         PathData pd = PathData();
@@ -749,12 +800,21 @@ void shiftCameraReservoir()
         //Prepare first hit data
         setFirstHitSurfaceData(pd, sd, mi, bsdfProperties);
 
-        //Init ray and (re)trace path
-        RayDesc ray = {};
-        ray.TMin = 0;
-        ray.TMax = FLT_MAX;
-        if (sampleNewDirection(sd, mi, pd, ray))
-            tracePath(ray, pd, pathReservoir);
+
+        if (pathReservoir.flags.isDirectNEE)
+        {
+            replayDirectLightNEE(sd, mi, pathReservoir, pd.F, pd.jacobian);
+        } else
+        {
+            pd.lastHitNee = true; // NEE is used for direct light
+
+            // Init ray and (re)trace path
+            RayDesc ray = {};
+            ray.TMin = 0;
+            ray.TMax = FLT_MAX;
+            if (sampleNewDirection(sd, mi, pd, ray))
+                tracePath(ray, pd, pathReservoir);
+        }
 
         shiftData = float4(pd.F, pd.jacobian);
     }
@@ -788,12 +848,19 @@ void generateCameraRay()
         let mi = gScene.materials.getMaterialInstance(sd, lod, kMIHints);
         let bsdfProperties = mi.getProperties(sd);
 
+        // Add travel distance until primary hit
+        pd.totalTravelDist = length(gScene.camera.getPosition() - sd.posW); // tracePath starts from primary hit, distance before that is added with this
+
         // Set RTXDI(ReSTIR DI) surface data
         float distanceToSurface = distance(sd.posW, gScene.camera.getPosition());
         gRTXDI.setSurfaceData(pixel, sd.computeNewRayOrigin(), bsdfProperties.guideNormal, bsdfProperties.diffuseReflectionAlbedo, bsdfProperties.specularReflectance, bsdfProperties.roughness, distanceToSurface);
 
         //Prepare first hit data
         setFirstHitSurfaceData(pd, sd, mi, bsdfProperties);
+
+        // Add direct light NEE for the first hit
+        addDirectLightNEE(sd, mi, pathReservoir, pd.sg); //
+        pd.lastHitNee = true;
 
         RayDesc ray = {};
         ray.TMin = 0;

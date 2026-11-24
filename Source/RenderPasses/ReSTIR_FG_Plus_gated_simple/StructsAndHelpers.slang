@@ -541,6 +541,7 @@ bool causticPhotonBackprojection(ShadingData sd, float photonTravelDistance, uin
     // gating causticPhotonBackprojection should implicitely gate all caustics, because:
     //      it gets only used on current camera since camera is hardcoded, so no danger of gating photons that shouldnt be gated
     //      every caustic Backprojected PhotonSample passes trough the linked list, and therefore trough here, so every Photon that should be gated is gated
+    // check if this stays true in case of changes
 
     // do actual ray query
     float visRayDist = distanceToCamera - gScene.camera.data.nearZ; // Remove camera near

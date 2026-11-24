@@ -1347,7 +1347,7 @@ void ReSTIR_FG_Plus_gated_simple::shiftPhotonPathPass(RenderContext* pRenderCont
     );
 }
 // IN SHORT: validates reservoir contents for the case that the reservoir content is a photon sample
-// validate/retraces the reservoir photon sample, which is the case if it is a caustic radiance estimate (remember: used intead of backprojection for ES*D paths) 7
+// validate/retraces the reservoir photon sample, which is the case if it is a caustic radiance estimate (remember: used intead of backprojection for ES*D paths)
 // or for FG radiance estimates
 
 // executes TraceCamera.rt.slang with IS_SHIFT = true and IS_SHIFT_CURRENT once for 1 and once for 0 in that order (two shader dispatches)
@@ -1513,7 +1513,7 @@ void ReSTIR_FG_Plus_gated_simple::resampleReservoirsPass(RenderContext* pRenderC
     FALCOR_ASSERT(targetDim.x > 0 && targetDim.y > 0);
     mpResampleReservoirPass->execute(pRenderContext, uint3(targetDim, 1));
 }
-//} // namespace pathResampling
+
 
 
 //----------------passes that evaluate all the reservoirs-----------------
@@ -1595,7 +1595,7 @@ void ReSTIR_FG_Plus_gated_simple::evaluateReservoirsPass(RenderContext* pRenderC
 }
 // IN SHORT: evaluates the reservoirs and emission of primary hit and produces a final color thereby
 //
-// CHANGES FOR GATING: emission of primary hit is gated now
+// CHANGES FOR GATING: coincidential emission of primary hit is gated now
 
 
 
