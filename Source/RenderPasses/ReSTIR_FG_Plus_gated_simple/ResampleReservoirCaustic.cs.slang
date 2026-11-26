@@ -76,22 +76,19 @@ void main(uint2 pixel: SV_DispatchThreadID)
         float3 toPrevCam = gPrevCamPos - sd.posW;
         float distToPrevCam = length(toPrevCam);
         toPrevCam /= distToPrevCam;
+        
 
-        // Check if time gate is passed
-        bool isVisible = true;
+        // Check if sample was in projection matrix last frame and if it is visible
+        float3 prevScreenPos = getCameraProjection(gPrevCamViewProjection, sd.posW);
+        bool isVisible = (all(prevScreenPos.xyz >= 0) && all(prevScreenPos.xyz < 1));
+
+        // Check if Time Gate is passed
         if (enableTimeGating && enableBackwardShiftGating) {
             // float lightPathTravelDistance = rCurr.travelDistancePhoton;
             // float camPathTravelDistance = distToPrevCam;
             isVisible = gate.pass(distToPrevCam + rCurr.travelDistancePhoton); // only continue if gate is passed
         }
 
-        // Check if sample was in projection matrix last frame and if it is visible
-        if (isVisible)
-        {
-            float3 prevScreenPos = getCameraProjection(gPrevCamViewProjection, sd.posW);
-            isVisible = (all(prevScreenPos.xyz >= 0) && all(prevScreenPos.xyz < 1));
-        }
-        
         if (isVisible)
         {
             float visRayDist = distToPrevCam - gScene.camera.data.nearZ; // Remove camera near

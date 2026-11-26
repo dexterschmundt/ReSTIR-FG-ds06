@@ -209,8 +209,8 @@ void ReSTIR_FG_Plus_gated_simple::renderUI(Gui::Widgets& widget)
         group.var("Gate Tolerance", mOptions.gateTolerance, 0.f, 5.f, 0.0015f);
         group.tooltip("Allowed deviation from Gate Value");
 
-        group.checkbox("Enable Backwards-shift Gating", mOptions.enableBackwardShiftGating);
-        group.tooltip("Enables Time Gating for Bakckwards shift");
+        //group.checkbox("Enable Backwards-shift Gating", mOptions.enableBackwardShiftGating);
+        //group.tooltip("Enables Time Gating for Bakckwards shift");
 
         //TODO: add ability to let gate value increase automatically with chosen speed
         // what does changed do?
