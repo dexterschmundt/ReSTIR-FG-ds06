@@ -199,7 +199,7 @@ struct PhotonSample {
     uint2 packedGuidingData; // Packed data needed for guiding. Unused if guiding is disabled
 
     float invPhotonScaleFactor;
-    uint _pad;
+    float photonTravelDistance; // to pass this info to outside of PhotonRIS and store it in reservoir
 
     __init() {
         posW = float3(0);
@@ -209,7 +209,7 @@ struct PhotonSample {
         packedPhotonRetraceData = uint2(0);
         packedGuidingData = uint2(0);
         invPhotonScaleFactor = 1.0;
-        _pad = 0;
+        photonTravelDistance = 0.0;
     }
 }
 
@@ -292,6 +292,7 @@ void photonRIS(ShadingData sd, IMaterialInstance mi, float3 N, bool collectOnlyC
             photonSample.packedPhotonRetraceData = photonData.packPhotonRetraceData();
             photonSample.packedGuidingData = pgd.pack();
             photonSample.invPhotonScaleFactor = photonData.invPhotonScaleFactor;
+            photonSample.photonTravelDistance = photonData.travelDistance;
         }
     }
 
@@ -310,9 +311,10 @@ void photonRIS(ShadingData sd, IMaterialInstance mi, float3 N, bool collectOnlyC
     \param[in] rand Random number in [0,1).
     \param[in] rcThp Throughput after reconnection to light source.
     \param[in] thp Throughput until the reconnection surface.
+    \param[in] lightPathtravelDistance travel Distance of the sample, later used for gating
     \return true if sample was selected as new representative sample
 */
-bool addSampleToReservoir(inout PathReservoir reservoir, float rand, float3 radiance, float3 thp)
+bool addSampleToReservoir(inout PathReservoir reservoir, float rand, float3 radiance, float3 thp, float lightPathtravelDistance)
 {
     float3 F = radiance * thp;
     float w = luminance(F);
@@ -321,6 +323,7 @@ bool addSampleToReservoir(inout PathReservoir reservoir, float rand, float3 radi
     if (selectOther) {
         reservoir.F = F;
         reservoir.fgRadiance = radiance;
+        reservoir.lightPathTravelDistance = lightPathtravelDistance; // used to gate when reconnect
     }
     return selectOther;
 }
@@ -334,7 +337,7 @@ void addDirectLightNEE(ShadingData sd, IMaterialInstance mi, inout PathReservoir
     uint4 sgState = sg.getState();
     float distToCam = length(gScene.camera.getPosition() - sd.posW); //distance t
     float3 nee = nextEventEstimation(sd, mi, distToCam, gNeeSelectProbabilites, ls, sg); // cam Path is only distance to camera since primary hit is being illuminated
-    if (addSampleToReservoir(reservoir, sampleNext1D(sg), nee, float3(1.0)))
+    if (addSampleToReservoir(reservoir, sampleNext1D(sg), nee, float3(1.0), /*lighPathTravelDistance*/ 0.0 ))
     {
         reservoir.jacobian = ls.pdf;
         if (!ls.isInfiniteDistance) {
@@ -354,6 +357,14 @@ void replayDirectLightNEE(ShadingData sd, IMaterialInstance mi, PathReservoir re
     bool validLightSample = generateAndSelectLightSample(sd, gNeeSelectProbabilites, ls, sg);
     if (validLightSample && ls.pdf > 0)
     {
+        // Check if Time Gate is passed
+        if (enableTimeGating && (enableBackwardShiftGating || !kShiftIsCurrent)) {
+            float lightPathTravelDistance = ls.distance;
+            float camPathTravelDistance = length(gScene.camera.getPosition() - sd.posW);
+            if (!gate.pass(lightPathTravelDistance + camPathTravelDistance))
+                return; // skip jacobian and F if gate isnt passed
+        }
+
         // Jacobian
         jacobian = ls.pdf;
         if (!ls.isInfiniteDistance) {
@@ -445,8 +456,8 @@ void tracePath(RayDesc ray, inout PathData pd, inout PathReservoir pathReservoir
                 #if IS_SHIFT
                     pd.F = envMapContribution * pd.thp;
                     pd.jacobian = pd.scatterPDF;
-                #else
-                    if (addSampleToReservoir(pathReservoir, sampleNext1D(pd.sg), envMapContribution, pd.thp))
+#else
+                if (addSampleToReservoir(pathReservoir, sampleNext1D(pd.sg), envMapContribution, pd.thp, /*lighPathTravelDistance*/ 0.0))
                     {
                         pathReservoir.jacobian = pd.scatterPDF;
                         uint flags = (uint)ReservoirPathFlags::hasNoReconnectionSurface | (uint)ReservoirPathFlags::isEnvMapHit;
@@ -515,8 +526,8 @@ void tracePath(RayDesc ray, inout PathData pd, inout PathReservoir pathReservoir
             #if IS_SHIFT
                 pd.F = emissiveContribution * pd.thp;
                 pd.jacobian = jacobian;
-            #else //IS_SHIFT
-                if (addSampleToReservoir(pathReservoir, sampleNext1D(pd.sg), emissiveContribution, pd.thp))
+#else  // IS_SHIFT
+            if (addSampleToReservoir(pathReservoir, sampleNext1D(pd.sg), emissiveContribution, pd.thp, /*lighPathTravelDistance*/ 0.0)) // i have no clue rn how a reconnection works in this case... TODO: figure out
                 {
                     pathReservoir.jacobian = jacobian;
                     uint flags = (uint)ReservoirPathFlags::hasNoReconnectionSurface | (uint)ReservoirPathFlags::isEmissiveHit;
@@ -551,7 +562,7 @@ void tracePath(RayDesc ray, inout PathData pd, inout PathReservoir pathReservoir
                 if (pd.pathLength == pathReservoir.pathLength)
                 {
                     // until here F and jacobian are still 0
-                    // should be reset to this if gating doesnt work.
+                    // should be reset to this if gate doesnt pass.
                     // TODO: add light path length to path reservoir for every case, then agte every case in here
                     
                     float3 toSample = float3(0);
@@ -559,6 +570,16 @@ void tracePath(RayDesc ray, inout PathData pd, inout PathReservoir pathReservoir
                     bool isFinalGatherOrNEE = false;
                     if (pathReservoir.flags.isFinalGather)
                     {
+
+                        // Check if Time Gate is passed
+                        if (enableTimeGating && (enableBackwardShiftGating || !kShiftIsCurrent)) {
+                            float lightPathTravelDistance = pathReservoir.lightPathTravelDistance;
+                            float reconnectionDistance = 0.0; // for Photons
+                            float camPathTravelDistance = pd.totalTravelDist;
+                            if (!gate.pass(lightPathTravelDistance + reconnectionDistance + camPathTravelDistance))
+                                break; // break early and skip jacobian and F if gate isnt passed
+                        }
+                        
                         //Get PDF and to sample info for new jacobian
                         toSample = pathReservoir.samplePosW - sd.posW;
                         distToSample = length(toSample);
@@ -571,6 +592,15 @@ void tracePath(RayDesc ray, inout PathData pd, inout PathReservoir pathReservoir
                         isFinalGatherOrNEE = any(pd.F > 0);
                     } else if (pathReservoir.flags.isRadianceEstimate)
                     {
+                        // Check if Time Gate is passed
+                        if (enableTimeGating && (enableBackwardShiftGating || !kShiftIsCurrent)) {
+                            float lightPathTravelDistance = pathReservoir.lightPathTravelDistance;
+                            float reconnectionDistance = 0.0; // for Photons
+                            float camPathTravelDistance = pd.totalTravelDist;
+                            if (!gate.pass(lightPathTravelDistance + reconnectionDistance + camPathTravelDistance))
+                                break; // break early and skip jacobian and F if gate isnt passed
+                        }
+
                         bool isReconnectable = distance(pathReservoir.samplePosW, sd.posW) < pathReservoir.sampleRadius;
                         if (isReconnectable) {
                             pd.F = pathReservoir.fgRadiance * pd.thp;
@@ -582,6 +612,16 @@ void tracePath(RayDesc ray, inout PathData pd, inout PathReservoir pathReservoir
                         //Recreate light sampling
                         LightSample ls;
                         bool validLightSample = generateAndSelectLightSample(sd, gNeeSelectProbabilites, ls, sg);
+
+                        // Check if Time Gate is passed
+                        if (enableTimeGating && (enableBackwardShiftGating || !kShiftIsCurrent)) {
+                            float lightPathTravelDistance = pathReservoir.lightPathTravelDistance; // 0 in this case
+                            float reconnectionDistance = ls.distance; // for NEE
+                            float camPathTravelDistance = pd.totalTravelDist;
+                            if (!gate.pass(lightPathTravelDistance + reconnectionDistance + camPathTravelDistance))
+                                break; // break early and skip jacobian and F if gate isnt passed
+                        }
+
                         if (validLightSample && ls.pdf > 0)
                         {
                             //Jacobian
@@ -616,8 +656,8 @@ void tracePath(RayDesc ray, inout PathData pd, inout PathReservoir pathReservoir
             #else //IS_SHIFT, Collect photons and do NEE
                 //Collect Photons
                 PhotonSample photonSample;
-                photonRIS(sd, mi, bsdfProperties.guideNormal, /*collectOnlyCaustics =*/ !isFinalGather, pd.totalTravelDist ,pd.sg, photonSample);
-                if (addSampleToReservoir(pathReservoir, sampleNext1D(pd.sg), photonSample.F, pd.thp))
+                photonRIS(sd, mi, bsdfProperties.guideNormal, /*collectOnlyCaustics =*/!isFinalGather, pd.totalTravelDist, pd.sg, photonSample);
+                if (addSampleToReservoir(pathReservoir, sampleNext1D(pd.sg), photonSample.F, pd.thp, /*lighPathTravelDistance*/ photonSample.photonTravelDistance))
                 {
                     pathReservoir.pathLength = isReconnectionSurface ? pd.pathLength - 1 : pd.pathLength;
                     pathReservoir.jacobian = jacobian;
@@ -650,7 +690,7 @@ void tracePath(RayDesc ray, inout PathData pd, inout PathReservoir pathReservoir
                     LightSample ls;
                     uint4 sgState = pd.sg.getState();
                     float3 nee = nextEventEstimation(sd, mi, pd.totalTravelDist, gNeeSelectProbabilites, ls, pd.sg);
-                    if (addSampleToReservoir(pathReservoir, sampleNext1D(pd.sg), nee, pd.thp))
+                    if (addSampleToReservoir(pathReservoir, sampleNext1D(pd.sg), nee, pd.thp, /*lightPathTravelDistance*/ 0.0))
                     {
                         pathReservoir.jacobian = ls.pdf;
                         if (!ls.isInfiniteDistance) {

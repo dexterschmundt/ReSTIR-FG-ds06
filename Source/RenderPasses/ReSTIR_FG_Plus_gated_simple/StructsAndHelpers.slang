@@ -259,10 +259,10 @@ struct PathReservoir {
     uint2 packedGuidingData;   // Packed data needed for guiding. Unused if guiding is disabled
 
     // from here on not included in struct size
-    float lightPathTravelDistance; // total travel distance from light source, used for gating
-    uint _pad1 ;                 // there has to be a better way
-    uint _pad2;                 // there has to be a better way
-    uint _pad3;                 //there has to be a better way
+    float lightPathTravelDistance; // total travel distance from light source, used for gating when reconnecting.
+    uint _pad1;                    // Only stores light path until the reconnection point, so only nonzero for Photons 
+    uint _pad2;                    // since every other light source is the reconnection point itself with no prior light path
+    uint _pad3;                 
 
     __init() {
         sgPathDirections = SampleGenerator(uint2(0), 0);
@@ -278,7 +278,7 @@ struct PathReservoir {
         packedPhotonRetraceData = uint2(0);
         packedGuidingData = uint2(0);
 
-        travelDistance = 0.0;
+        lightPathTravelDistance = 0.0;
 
         _pad1 = 0;
         _pad2 = 0;

@@ -1467,6 +1467,8 @@ void ReSTIR_FG_Plus_gated_simple::shiftCameraPathPass(RenderContext* pRenderCont
 // In this function (meaning outside of shader), the function call index and dispatch index get used to determine if its the one dispatch where the domain of last frame should be supplied
 //
 // CHANGES FOR GATING: TODO: accept shifted samples only if they fulfill gate, both forward and backward
+// LightPathTravelDistance is now stored in Path reservoir and used to do gating during reconnection
+//
 
 
 
