@@ -104,6 +104,7 @@ private:
         bool enableTimeGating = false;           // necessary data will still be loaded, only gate tests are excluded TODO: as soon as it works maybe also exclude data structures via defines
         float gateValue = 10.0;
         float gateTolerance = 1.0;
+        float enableBackwardShiftGating = true;
 
         //
         // Debug Options

@@ -6,7 +6,7 @@ cbuffer Gate
     bool enableTimeGating;
     float gateValue;
     float gateTol;
-    uint _pad; 
+    bool enableBackwardShiftGating; 
 }
 
 // Helper struct for Gates so i can access its data with point notation

@@ -333,7 +333,7 @@ void addDirectLightNEE(ShadingData sd, IMaterialInstance mi, inout PathReservoir
     LightSample ls;
     uint4 sgState = sg.getState();
     float distToCam = length(gScene.camera.getPosition() - sd.posW); //distance t
-    float3 nee = nextEventEstimation(sd, mi, distToCam, gNeeSelectProbabilites, ls, sg);
+    float3 nee = nextEventEstimation(sd, mi, distToCam, gNeeSelectProbabilites, ls, sg); // cam Path is only distance to camera since primary hit is being illuminated
     if (addSampleToReservoir(reservoir, sampleNext1D(sg), nee, float3(1.0)))
     {
         reservoir.jacobian = ls.pdf;
@@ -489,7 +489,7 @@ void tracePath(RayDesc ray, inout PathData pd, inout PathReservoir pathReservoir
         if (validEmissiveHitSample)
         {
             // Check if time gate is passed
-            if (enableTimeGating) {
+            if (enableTimeGating && (!kIsShift || (!kShiftIsCurrent || enableBackwardShiftGating ))) { // break should not be called if current one is shifted and Backwords shifting should not be gated
                 // float lightPathTravelDistance = 0.0f; // cam path went until emissive hit in this case
                 float camPathTravelDistance = pd.totalTravelDist;
                 if (!gate.pass(/*lightPathTravelDistance + */ camPathTravelDistance))
@@ -546,9 +546,14 @@ void tracePath(RayDesc ray, inout PathData pd, inout PathReservoir pathReservoir
                 sd.mtl.setActiveLobes((uint)LobeType::Diffuse);
 
             // Either check if reservoir sample is valid, or perform radiance estimate and NEE (on the first diffuse hit)
+            //checking if its valid seems to mean "trying to do the reconnect"
             #if IS_SHIFT
                 if (pd.pathLength == pathReservoir.pathLength)
                 {
+                    // until here F and jacobian are still 0
+                    // should be reset to this if gating doesnt work.
+                    // TODO: add light path length to path reservoir for every case, then agte every case in here
+                    
                     float3 toSample = float3(0);
                     float distToSample = -1;
                     bool isFinalGatherOrNEE = false;

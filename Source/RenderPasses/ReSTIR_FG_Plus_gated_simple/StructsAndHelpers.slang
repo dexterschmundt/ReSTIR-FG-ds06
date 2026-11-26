@@ -259,8 +259,8 @@ struct PathReservoir {
     uint2 packedGuidingData;   // Packed data needed for guiding. Unused if guiding is disabled
 
     // from here on not included in struct size
-    float travelDistance;       // total travel distance from light source, used for gating
-    uint _pad1;                 // there has to be a better way
+    float lightPathTravelDistance; // total travel distance from light source, used for gating
+    uint _pad1 ;                 // there has to be a better way
     uint _pad2;                 // there has to be a better way
     uint _pad3;                 //there has to be a better way
 
@@ -339,6 +339,7 @@ struct CausticReservoir {
     float distanceToCamera;           // Distance to camera to correctly gate backprojection. May be optimized at some point (hopefully it will because this is terrible)
     uint _pad2;                 // there has to be a better way
     uint _pad3;                 //there has to be a better way
+    // distance to camera currently unused
 
     __init() {
         sampleSurface = {};

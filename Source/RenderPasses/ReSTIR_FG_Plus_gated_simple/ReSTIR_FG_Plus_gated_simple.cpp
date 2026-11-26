@@ -209,6 +209,9 @@ void ReSTIR_FG_Plus_gated_simple::renderUI(Gui::Widgets& widget)
         group.var("Gate Tolerance", mOptions.gateTolerance, 0.f, 5.f, 0.0015f);
         group.tooltip("Allowed deviation from Gate Value");
 
+        group.checkbox("Enable Backwards-shift Gating", mOptions.enableBackwardShiftGating);
+        group.tooltip("Enables Time Gating for Bakckwards shift");
+
         //TODO: add ability to let gate value increase automatically with chosen speed
         // what does changed do?
     }
@@ -1012,7 +1015,7 @@ void ReSTIR_FG_Plus_gated_simple::traceCameraPass(RenderContext * pRenderContext
 // 
 // CHANGES FOR GATING: PhotonRIS/Radiance Estimate, NEE and Emissive hits are gated 
 // TODO: make Environment Maps be gated too (in whatever way that makes sense, probably just ignoring them since infinite distance)
-// TODO: make NEE happen even if no specular bounces happened so ReSTIR DI can be omitted
+// TODO: Gating could be simplified by just gating "addSampleToReservoir()" 
 
 
 
@@ -1108,8 +1111,8 @@ void ReSTIR_FG_Plus_gated_simple::shiftCausticPathPass(RenderContext* pRenderCon
     );
 }
 // IN SHORT: shifts the caustics in last frame reservoirs to current frame pixels
-// shift is done by validating/retracing the paths of photon samples in reservoirs of previous frame, then backprojecting them into current camera
-// and adding the reservoirs to the linked list (like tracePhotonsPass)
+// shift is done by validating a possible shift by retracing the paths of photon samples in reservoirs of previous frame, then
+// doing the actual shift by backprojecting them into current camera and adding the reservoirs to the linked list (like tracePhotonsPass)
 //
 // CHANGES FOR GATING: None in this shader, but
 //                      reservoir of previous frame doesnt get added if photon inside doesnt pass the gate, implemented by same change
@@ -1249,11 +1252,11 @@ void ReSTIR_FG_Plus_gated_simple::resampleReservoirCausticPass(RenderContext* pR
 
     pRenderContext->uavBarrier(mpLightTraceHeadCounter.get());
 }
-// IN SHORT: does the reservoir resampling for the caustic samples
-// current sample gets backprojected into last frame (it gets looked up at which pixel it was in the last frame) to calculate some of that
-// funny jacobian stuff, then the reservoirs in the linked list are walked trough and combined with the current reservoir
+// IN SHORT: does the reservoir resampling for the caustic samples and does Backward shift
+// current sample gets backprojected into last frame (it gets looked up at which pixel it was in the last frame) as Backwards shift to calculate
+// MIS weights (by using "splatting"), then the reservoirs in the linked list are walked trough and combined with the current reservoir
 //
-// CHANGES FOR GATING: None, linked list entries are already gated trough change in causticPhotonBackprojection
+// CHANGES FOR GATING: linked list entries are already gated trough change in causticPhotonBackprojection, other than that the Backwards shift is gated now
 
 
 
@@ -1261,7 +1264,7 @@ void ReSTIR_FG_Plus_gated_simple::resampleReservoirCausticPass(RenderContext* pR
 
 //-----------------passes that do the path resampling------------------
 
-// executes TracePhotons.rt.slang with IS_SHIFT / IS_SHIFT_PATH = true
+// executes TracePhotons.rt.slang once with IS_SHIFT / IS_SHIFT_PATH = true
 void ReSTIR_FG_Plus_gated_simple::shiftPhotonPathPass(RenderContext* pRenderContext, const RenderData& renderData)
 {
     FALCOR_PROFILE(pRenderContext, "ShiftPhotonPath");
@@ -1347,10 +1350,14 @@ void ReSTIR_FG_Plus_gated_simple::shiftPhotonPathPass(RenderContext* pRenderCont
     );
 }
 // IN SHORT: validates reservoir contents for the case that the reservoir content is a photon sample
-// validate/retraces the reservoir photon sample, which is the case if it is a caustic radiance estimate (remember: used intead of backprojection for ES*D paths)
-// or for FG radiance estimates
+// validates photon position of the reservoir photon sample, which is the case if it is a caustic radiance estimate (remember: used intead of backprojection for ES*D paths)
+// or for FG radiance estimates. It is done by retracing the photon and looking if it would still be in the collection radius of the path that initially found the Photon sample
+// (deduced by info stored in reservoir)
+//
+// CHANGES FOR GATING: None
 
 // executes TraceCamera.rt.slang with IS_SHIFT = true and IS_SHIFT_CURRENT once for 1 and once for 0 in that order (two shader dispatches)
+// both shader dispatches are
 void ReSTIR_FG_Plus_gated_simple::shiftCameraPathPass(RenderContext* pRenderContext, const RenderData& renderData, uint numPass)
 {
     FALCOR_PROFILE(pRenderContext, "ShiftPathReservoir");
@@ -1445,6 +1452,25 @@ void ReSTIR_FG_Plus_gated_simple::shiftCameraPathPass(RenderContext* pRenderCont
         mpScene->raytrace(pRenderContext, pass.pProgram.get(), pass.pVars, uint3(mScreenRes, 1));
     }
 }
+// IN SHORT: Does forward and backward shift of Paths
+// Shifts the path in new domain (more on that later) and calculates target fkt and jacobian
+// This function gets called multiple times, each call followed by an execution of resampleReservoirsPass.
+// The first call always does the shift for temporal resampling, the following calls the shifts for spatial resampling of different pixels.
+// Every call of this function does two shader dispatches of the same shader, each doing one way of the shift:
+// First dispatch does replaying path of current pixel in domain of pixel you want to resample (backward shift), second dispatch does replaying path of the pixel you want to resample in
+// domain of current pixel (forward shift).
+// Using a domain means using the same start position / primary hit and the same scene geometry. The latter is the same for both in spatial, but potentially different for temporal.
+// I think the latter is ignored in here though TODO: ask Rene
+// For the very first shader dispatch (first shader dispatch of first call, meaning replaying current path in temporal resampled pixels domain) the domain of last frame is supplied
+// Inside the shader the index of function call just decides how the resampled pixel gets chosen, and the dispatch index decides if pixel whose domain gets used and pixel whose path
+// gets used are swapped (meaining the shift gets done the other way around)
+// In this function (meaning outside of shader), the function call index and dispatch index get used to determine if its the one dispatch where the domain of last frame should be supplied
+//
+// CHANGES FOR GATING: TODO: accept shifted samples only if they fulfill gate, both forward and backward
+
+
+
+
 
 // executes ResamplePathReservoir.cs.slang
 void ReSTIR_FG_Plus_gated_simple::resampleReservoirsPass(RenderContext* pRenderContext, const RenderData& renderData, uint numPass)
@@ -1618,6 +1644,7 @@ void ReSTIR_FG_Plus_gated_simple::setGatingData(ShaderVar var)
     var["Gate"]["enableTimeGating"] = mOptions.enableTimeGating;
     var["Gate"]["gateValue"] = mOptions.gateValue;
     var["Gate"]["gateTol"] = mOptions.gateTolerance;
+    var["Gate"]["enableBackwardShiftGating"] = mOptions.enableBackwardShiftGating;
 }
 
 void ReSTIR_FG_Plus_gated_simple::RayTraceProgramHelper::initProgramVars(

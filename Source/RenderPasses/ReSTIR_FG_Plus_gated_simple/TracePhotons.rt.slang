@@ -400,7 +400,7 @@ void rayGen()
                     shiftIsValid = true; // Photon is potentially rejected in path shift
                     pathReservoir.samplePosW = sd.posW;
                     pathReservoir.sampleRadius = getPhotonRadius((uint)photonType, sd.posW);
-                    pathReservoir.travelDistance = photon.travelDistance;
+                    pathReservoir.lightPathTravelDistance = photon.travelDistance;
                 }
                 // Check if photon type differs
                 shiftIsValid &= pathReservoir.flags.isCaustic == storeAsCaustic;
